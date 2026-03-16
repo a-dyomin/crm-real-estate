@@ -6,20 +6,144 @@ from app.api.deps import get_current_user, require_roles
 from app.db.session import get_db
 from app.models.enums import ParserResultStatus, SourceChannel, UserRole
 from app.models.parser_result import ParserResult
+from app.models.parser_run import ParserRun
+from app.models.parser_source import ParserSource
 from app.models.user import User
 from app.schemas.deal import DealRead
 from app.schemas.lead import LeadRead
 from app.schemas.parser import (
     ParserIngestRequest,
+    ParserRunRead,
     ParserResultRead,
+    ParserSourceCreate,
+    ParserSourceRead,
+    ParserSourceUpdate,
     ParserToDealRequest,
     ParserToLeadRequest,
 )
 from app.services.conversion import parser_result_to_deal, parser_result_to_lead
 from app.services.audit import write_audit_log
 from app.services.parser_ingest import ingest_parser_item
+from app.services.parser_orchestrator import run_parser_for_agency
 
 router = APIRouter(prefix="/parser", tags=["parser"])
+
+
+@router.get(
+    "/sources",
+    response_model=list[ParserSourceRead],
+    dependencies=[Depends(require_roles(UserRole.admin, UserRole.call_center, UserRole.sales, UserRole.manager))],
+)
+def list_parser_sources(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> list[ParserSource]:
+    stmt: Select[tuple[ParserSource]] = (
+        select(ParserSource).where(ParserSource.agency_id == current_user.agency_id).order_by(ParserSource.id.desc())
+    )
+    return db.execute(stmt).scalars().all()
+
+
+@router.post(
+    "/sources",
+    response_model=ParserSourceRead,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_roles(UserRole.admin, UserRole.manager))],
+)
+def create_parser_source(
+    payload: ParserSourceCreate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)
+) -> ParserSource:
+    if payload.source_channel == SourceChannel.manual:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Manual channel is not valid for auto source.")
+    source = ParserSource(agency_id=current_user.agency_id, **payload.model_dump())
+    db.add(source)
+    db.flush()
+    write_audit_log(
+        db,
+        agency_id=current_user.agency_id,
+        user=current_user,
+        action="parser.source_create",
+        entity_type="parser_source",
+        entity_id=str(source.id),
+        details={"name": source.name, "channel": source.source_channel.value},
+    )
+    db.commit()
+    db.refresh(source)
+    return source
+
+
+@router.patch(
+    "/sources/{source_id}",
+    response_model=ParserSourceRead,
+    dependencies=[Depends(require_roles(UserRole.admin, UserRole.manager))],
+)
+def update_parser_source(
+    source_id: int,
+    payload: ParserSourceUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> ParserSource:
+    stmt: Select[tuple[ParserSource]] = select(ParserSource).where(
+        ParserSource.id == source_id, ParserSource.agency_id == current_user.agency_id
+    )
+    source = db.execute(stmt).scalar_one_or_none()
+    if not source:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Parser source not found.")
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        setattr(source, field, value)
+    write_audit_log(
+        db,
+        agency_id=current_user.agency_id,
+        user=current_user,
+        action="parser.source_update",
+        entity_type="parser_source",
+        entity_id=str(source.id),
+    )
+    db.commit()
+    db.refresh(source)
+    return source
+
+
+@router.get(
+    "/runs",
+    response_model=list[ParserRunRead],
+    dependencies=[Depends(require_roles(UserRole.admin, UserRole.call_center, UserRole.sales, UserRole.manager))],
+)
+def list_parser_runs(
+    limit: int = Query(default=20, ge=1, le=100),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> list[ParserRun]:
+    stmt: Select[tuple[ParserRun]] = (
+        select(ParserRun)
+        .where(ParserRun.agency_id == current_user.agency_id)
+        .order_by(ParserRun.started_at.desc())
+        .limit(limit)
+    )
+    return db.execute(stmt).scalars().all()
+
+
+@router.post(
+    "/run-now",
+    response_model=ParserRunRead,
+    dependencies=[Depends(require_roles(UserRole.admin, UserRole.call_center, UserRole.sales, UserRole.manager))],
+)
+def run_parser_now(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> ParserRun:
+    run = run_parser_for_agency(db=db, agency_id=current_user.agency_id, trigger="manual")
+    write_audit_log(
+        db,
+        agency_id=current_user.agency_id,
+        user=current_user,
+        action="parser.run_now",
+        entity_type="parser_run",
+        entity_id=str(run.id),
+        details={
+            "status": run.status.value,
+            "fetched": run.fetched_count,
+            "inserted": run.inserted_count,
+            "errors": run.error_count,
+        },
+    )
+    db.commit()
+    db.refresh(run)
+    return run
 
 
 @router.post(

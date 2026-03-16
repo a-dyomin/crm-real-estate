@@ -5,6 +5,7 @@ __pycache__/
 *.db
 .pilot.pid
 .env
+media/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/

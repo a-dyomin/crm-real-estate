@@ -16,6 +16,7 @@ class ParserResult(Base):
     source_channel: Mapped[SourceChannel] = mapped_column(Enum(SourceChannel), nullable=False, index=True)
     source_external_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     raw_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    telegram_post_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     normalized_address: Mapped[str | None] = mapped_column(String(512), nullable=True, index=True)
@@ -35,4 +36,3 @@ class ParserResult(Base):
     payload: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
-

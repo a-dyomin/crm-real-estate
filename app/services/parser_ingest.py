@@ -12,6 +12,7 @@ def ingest_parser_item(db: Session, agency_id: int, payload: ParserIngestItem) -
         source_channel=payload.source_channel,
         source_external_id=payload.source_external_id,
         raw_url=payload.raw_url,
+        telegram_post_url=payload.telegram_post_url,
         title=payload.title,
         description=payload.description,
         normalized_address=payload.normalized_address,
@@ -33,4 +34,3 @@ def ingest_parser_item(db: Session, agency_id: int, payload: ParserIngestItem) -
     db.add(result)
     db.flush()
     return result
-

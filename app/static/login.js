@@ -1,4 +1,4 @@
-const apiPrefix = document.body.dataset.apiPrefix;
+﻿const apiPrefix = document.body.dataset.apiPrefix;
 const existingToken = localStorage.getItem("cre_token");
 
 if (existingToken) {
@@ -28,4 +28,3 @@ document.getElementById("loginForm").addEventListener("submit", async (event) =>
     errorNode.textContent = `Ошибка входа: ${error.message}`;
   }
 });
-

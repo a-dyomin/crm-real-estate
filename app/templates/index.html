@@ -1,4 +1,4 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="ru">
   <head>
     <meta charset="UTF-8" />
@@ -9,8 +9,8 @@
   <body data-api-prefix="{{ api_prefix }}">
     <header class="topbar">
       <div>
-        <h1>CRE CRM Platform</h1>
-        <p>Коммерческая недвижимость: фаза 1.2/1.3</p>
+        <h1>CRE CRM</h1>
+        <p>Phase 2/3: канбан, колл-центр, IP-телефония, транскрибация</p>
       </div>
       <div class="userbox">
         <div id="currentUserInfo"></div>
@@ -24,6 +24,7 @@
         <button class="tab-btn" data-tab="leads">Лиды</button>
         <button class="tab-btn" data-tab="deals">Сделки</button>
         <button class="tab-btn" data-tab="parser">Parser Hub</button>
+        <button class="tab-btn" data-tab="calls">Колл-центр</button>
         <button class="tab-btn" data-tab="users" id="usersTabBtn">Пользователи</button>
       </aside>
 
@@ -61,6 +62,87 @@
 
         <section class="tab" id="tab-parser">
           <h2>Parser Hub</h2>
+          <div class="split">
+            <div class="panel">
+              <h3>Автоисточники (каждые 24 часа)</h3>
+              <form id="sourceForm" class="grid single">
+                <label>Название источника
+                  <input name="name" required minlength="2" />
+                </label>
+                <label>Канал
+                  <select name="source_channel" required>
+                    <option value="avito">avito</option>
+                    <option value="cian">cian</option>
+                    <option value="domclick">domclick</option>
+                    <option value="telegram">telegram</option>
+                  </select>
+                </label>
+                <label>URL источника
+                  <input name="source_url" required placeholder="https://..." />
+                </label>
+                <label>Режим
+                  <select name="mode">
+                    <option value="html">html</option>
+                    <option value="rss">rss</option>
+                    <option value="json_api">json_api</option>
+                  </select>
+                </label>
+                <label>Город
+                  <input name="city" value="Ижевск" />
+                </label>
+                <label>Код региона
+                  <input name="region_code" value="RU-UDM" />
+                </label>
+                <label>Интервал (минуты)
+                  <input name="poll_minutes" type="number" min="60" max="10080" value="1440" />
+                </label>
+                <label>Макс. объявлений за запуск
+                  <input name="max_items_per_run" type="number" min="1" max="200" value="20" />
+                </label>
+                <label>Доп. JSON (опционально)
+                  <input name="extra_config_json" placeholder='{"headers":{"Authorization":"Bearer ..."}}' />
+                </label>
+                <button type="submit">Добавить источник</button>
+              </form>
+              <button id="runParserNowBtn" class="secondary">Запустить парсер сейчас</button>
+            </div>
+            <div class="panel">
+              <h3>Последние запуски парсера</h3>
+              <table>
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Статус</th>
+                    <th>Триггер</th>
+                    <th>Получено</th>
+                    <th>Добавлено</th>
+                    <th>Ошибки</th>
+                    <th>Старт</th>
+                  </tr>
+                </thead>
+                <tbody id="parserRunRows"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <h3>Настроенные источники</h3>
+          <table>
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Название</th>
+                <th>Канал</th>
+                <th>URL</th>
+                <th>Интервал</th>
+                <th>Последний запуск</th>
+                <th>Статус</th>
+                <th>Действия</th>
+              </tr>
+            </thead>
+            <tbody id="sourceRows"></tbody>
+          </table>
+
+          <h3>Ручное добавление</h3>
           <form id="ingestForm" class="grid">
             <label>Канал
               <select name="source_channel" required>
@@ -109,11 +191,77 @@
                 <th>Канал</th>
                 <th>Статус</th>
                 <th>Объект</th>
+                <th>Post URL</th>
                 <th>Контакт</th>
                 <th>Действия</th>
               </tr>
             </thead>
             <tbody id="parserRows"></tbody>
+          </table>
+        </section>
+
+        <section class="tab" id="tab-calls">
+          <h2>Колл-центр</h2>
+          <div class="split">
+            <div class="panel">
+              <h3>Ручная регистрация звонка</h3>
+              <form id="callManualForm" class="grid single">
+                <label>От кого
+                  <input name="from_number" placeholder="+79001234567" />
+                </label>
+                <label>На номер
+                  <input name="to_number" placeholder="+73412223344" />
+                </label>
+                <label>Статус
+                  <select name="status">
+                    <option value="in_progress">in_progress</option>
+                    <option value="completed">completed</option>
+                    <option value="missed">missed</option>
+                  </select>
+                </label>
+                <label>Длительность (сек)
+                  <input name="duration_sec" type="number" min="0" value="0" />
+                </label>
+                <button type="submit">Добавить звонок</button>
+              </form>
+            </div>
+            <div class="panel">
+              <h3>Загрузка записи</h3>
+              <form id="recordingUploadForm" class="grid single">
+                <label>ID звонка
+                  <input name="call_id" type="number" min="1" required />
+                </label>
+                <label>Файл записи
+                  <input name="recording_file" type="file" accept="audio/*" required />
+                </label>
+                <button type="submit">Загрузить запись</button>
+              </form>
+              <p class="muted">
+                После загрузки можно нажать <code>Transcribe</code>. Для реальной транскрибации задайте
+                <code>OPENAI_API_KEY</code> в <code>.env</code>.
+              </p>
+            </div>
+          </div>
+
+          <div class="tab-title">
+            <h3>История звонков</h3>
+            <button id="refreshCallsBtn" class="secondary">Обновить</button>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Время</th>
+                <th>От</th>
+                <th>Кому</th>
+                <th>Статус</th>
+                <th>Длительность</th>
+                <th>Запись</th>
+                <th>Транскрипт</th>
+                <th>Действия</th>
+              </tr>
+            </thead>
+            <tbody id="callRows"></tbody>
           </table>
         </section>
 
@@ -164,4 +312,3 @@
     <script src="/static/app.js"></script>
   </body>
 </html>
-

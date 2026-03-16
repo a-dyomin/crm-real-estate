@@ -77,7 +77,7 @@ def decide_parser_result_status(db: Session, agency_id: int, item: ParserPayload
             ParserResult.source_channel == item.source_channel,
             ParserResult.source_external_id == item.source_external_id,
         )
-        same_source = db.execute(same_source_stmt).scalar_one_or_none()
+        same_source = db.execute(same_source_stmt).scalars().first()
         if same_source:
             return DedupDecision(
                 status=ParserResultStatus.duplicate,
@@ -90,7 +90,7 @@ def decide_parser_result_status(db: Session, agency_id: int, item: ParserPayload
         by_fingerprint_stmt: Select[tuple[ParserResult]] = select(ParserResult).where(
             ParserResult.agency_id == agency_id, ParserResult.fingerprint == fingerprint
         )
-        by_fingerprint = db.execute(by_fingerprint_stmt).scalar_one_or_none()
+        by_fingerprint = db.execute(by_fingerprint_stmt).scalars().first()
         if by_fingerprint:
             return DedupDecision(
                 status=ParserResultStatus.duplicate,
@@ -115,4 +115,3 @@ def decide_parser_result_status(db: Session, agency_id: int, item: ParserPayload
                 )
 
     return DedupDecision(status=ParserResultStatus.new, duplicate_of_id=None, fingerprint=fingerprint)
-

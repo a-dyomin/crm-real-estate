@@ -3,13 +3,14 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from app.models.enums import ContactIntent, ParserResultStatus, SourceChannel
+from app.models.enums import ContactIntent, ParserResultStatus, ParserRunStatus, SourceChannel
 
 
 class ParserIngestItem(BaseModel):
     source_channel: SourceChannel
     source_external_id: str | None = None
     raw_url: str | None = None
+    telegram_post_url: str | None = None
     title: str = Field(min_length=3, max_length=255)
     description: str | None = None
     normalized_address: str | None = None
@@ -36,6 +37,7 @@ class ParserResultRead(BaseModel):
     source_channel: SourceChannel
     source_external_id: str | None
     raw_url: str | None
+    telegram_post_url: str | None
     title: str
     description: str | None
     normalized_address: str | None
@@ -66,3 +68,65 @@ class ParserToDealRequest(BaseModel):
     title: str | None = None
     value_rub: float | None = None
 
+
+class ParserSourceCreate(BaseModel):
+    name: str = Field(min_length=2, max_length=255)
+    source_channel: SourceChannel
+    source_url: str = Field(min_length=6, max_length=1024)
+    city: str | None = None
+    region_code: str = "RU-UDM"
+    is_active: bool = True
+    poll_minutes: int = Field(default=1440, ge=60, le=10080)
+    max_items_per_run: int = Field(default=20, ge=1, le=200)
+    extra_config: dict[str, Any] | None = None
+
+
+class ParserSourceUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=2, max_length=255)
+    source_url: str | None = Field(default=None, min_length=6, max_length=1024)
+    city: str | None = None
+    region_code: str | None = None
+    is_active: bool | None = None
+    poll_minutes: int | None = Field(default=None, ge=60, le=10080)
+    max_items_per_run: int | None = Field(default=None, ge=1, le=200)
+    extra_config: dict[str, Any] | None = None
+
+
+class ParserSourceRead(BaseModel):
+    id: int
+    agency_id: int
+    name: str
+    source_channel: SourceChannel
+    source_url: str
+    city: str | None
+    region_code: str
+    is_active: bool
+    poll_minutes: int
+    max_items_per_run: int
+    extra_config: dict[str, Any] | None
+    last_run_at: datetime | None
+    last_success_at: datetime | None
+    last_error: str | None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class ParserRunRead(BaseModel):
+    id: int
+    agency_id: int
+    status: ParserRunStatus
+    trigger: str
+    source_count: int
+    fetched_count: int
+    inserted_count: int
+    duplicate_count: int
+    possible_duplicate_count: int
+    error_count: int
+    error_message: str | None
+    started_at: datetime
+    finished_at: datetime | None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}

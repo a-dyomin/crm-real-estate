@@ -53,6 +53,8 @@ body {
 .sidebar {
   display: grid;
   gap: 8px;
+  align-content: start;
+  grid-auto-rows: min-content;
   padding: 16px;
   border-right: 1px solid var(--border);
   background: #f8fbfd;
@@ -65,6 +67,8 @@ body {
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 10px 12px;
+  min-height: 40px;
+  white-space: nowrap;
   cursor: pointer;
   font-weight: 600;
 }
@@ -252,6 +256,15 @@ td {
   flex-wrap: wrap;
 }
 
+audio {
+  width: 220px;
+  max-width: 100%;
+}
+
+details {
+  max-width: 320px;
+}
+
 .login-page {
   min-height: 100vh;
   display: grid;
@@ -290,7 +303,7 @@ td {
   }
 
   .sidebar {
-    grid-template-columns: repeat(5, minmax(120px, 1fr));
+    grid-template-columns: repeat(6, minmax(120px, 1fr));
     overflow-x: auto;
     border-right: none;
     border-bottom: 1px solid var(--border);
@@ -314,4 +327,3 @@ td {
     grid-template-columns: 1fr;
   }
 }
-

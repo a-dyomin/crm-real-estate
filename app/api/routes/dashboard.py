@@ -3,9 +3,10 @@ from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, require_roles
+from app.models.call_record import CallRecord
 from app.db.session import get_db
 from app.models.deal import Deal
-from app.models.enums import DealStatus, LeadStatus, ParserResultStatus, UserRole
+from app.models.enums import CallStatus, DealStatus, LeadStatus, ParserResultStatus, TranscriptStatus, UserRole
 from app.models.lead import Lead
 from app.models.parser_result import ParserResult
 from app.models.user import User
@@ -48,6 +49,22 @@ def summary(current_user: User = Depends(get_current_user), db: Session = Depend
         or 0
     )
 
+    calls_total = db.scalar(select(func.count(CallRecord.id)).where(CallRecord.agency_id == agency_id)) or 0
+    calls_missed = (
+        db.scalar(
+            select(func.count(CallRecord.id)).where(CallRecord.agency_id == agency_id, CallRecord.status == CallStatus.missed)
+        )
+        or 0
+    )
+    calls_transcribed = (
+        db.scalar(
+            select(func.count(CallRecord.id)).where(
+                CallRecord.agency_id == agency_id, CallRecord.transcript_status == TranscriptStatus.completed
+            )
+        )
+        or 0
+    )
+
     leads_total = db.scalar(select(func.count(Lead.id)).where(Lead.agency_id == agency_id)) or 0
     deals_total = db.scalar(select(func.count(Deal.id)).where(Deal.agency_id == agency_id)) or 0
 
@@ -81,6 +98,9 @@ def summary(current_user: User = Depends(get_current_user), db: Session = Depend
         parser_new=parser_new,
         parser_possible_duplicate=parser_possible_duplicate,
         parser_duplicate=parser_duplicate,
+        calls_total=calls_total,
+        calls_missed=calls_missed,
+        calls_transcribed=calls_transcribed,
         leads_total=leads_total,
         deals_total=deals_total,
         leads_by_status=leads_by_status,
@@ -88,4 +108,3 @@ def summary(current_user: User = Depends(get_current_user), db: Session = Depend
         conversion_lead_to_deal_percent=conversion,
         pipeline_value_rub=float(pipeline_value),
     )
-

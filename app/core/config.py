@@ -12,6 +12,18 @@ class Settings(BaseSettings):
     access_token_ttl_minutes: int = 720
     default_admin_email: str = "admin@crecrm.app"
     default_admin_password: str = "admin123"
+    media_dir: str = "./media"
+    telephony_webhook_token: str = ""
+    openai_api_key: str = ""
+    openai_base_url: str = "https://api.openai.com/v1"
+    transcription_model: str = "whisper-1"
+    parser_scheduler_enabled: bool = True
+    parser_poll_interval_minutes: int = 1440
+    parser_request_timeout_sec: int = 25
+    parser_max_items_per_source: int = 20
+    parser_detail_fetch_limit: int = 10
+    parser_mirror_fallback_enabled: bool = True
+    parser_mirror_base_url: str = "https://r.jina.ai/http://"
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

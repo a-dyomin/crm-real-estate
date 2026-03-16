@@ -63,3 +63,29 @@ class ParserResultStatus(str, Enum):
     converted_to_deal = "converted_to_deal"
     rejected = "rejected"
 
+
+class ParserRunStatus(str, Enum):
+    running = "running"
+    completed = "completed"
+    completed_with_errors = "completed_with_errors"
+    failed = "failed"
+
+
+class CallDirection(str, Enum):
+    inbound = "inbound"
+    outbound = "outbound"
+
+
+class CallStatus(str, Enum):
+    ringing = "ringing"
+    in_progress = "in_progress"
+    completed = "completed"
+    missed = "missed"
+    failed = "failed"
+
+
+class TranscriptStatus(str, Enum):
+    none = "none"
+    processing = "processing"
+    completed = "completed"
+    failed = "failed"

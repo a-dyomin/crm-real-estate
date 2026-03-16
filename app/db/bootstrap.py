@@ -2,6 +2,15 @@ from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
 
+def _sqlite_table_exists(engine: Engine, table_name: str) -> bool:
+    with engine.connect() as conn:
+        row = conn.execute(
+            text("SELECT name FROM sqlite_master WHERE type='table' AND name=:name;"),
+            {"name": table_name},
+        ).fetchone()
+    return row is not None
+
+
 def _sqlite_columns(engine: Engine, table_name: str) -> set[str]:
     with engine.connect() as conn:
         rows = conn.execute(text(f"PRAGMA table_info({table_name});")).fetchall()
@@ -19,11 +28,7 @@ def _add_column_if_missing(engine: Engine, table_name: str, column_name: str, dd
 def apply_runtime_migrations(engine: Engine) -> None:
     if not str(engine.url).startswith("sqlite"):
         return
-    with engine.connect() as conn:
-        users_exists = conn.execute(
-            text("SELECT name FROM sqlite_master WHERE type='table' AND name='users';")
-        ).fetchone()
-    if not users_exists:
+    if not _sqlite_table_exists(engine, "users"):
         return
 
     _add_column_if_missing(engine, "users", "password_hash", "VARCHAR(255) DEFAULT ''")
@@ -31,3 +36,5 @@ def apply_runtime_migrations(engine: Engine) -> None:
     _add_column_if_missing(engine, "users", "last_login_at", "DATETIME")
     _add_column_if_missing(engine, "users", "updated_at", "DATETIME")
 
+    if _sqlite_table_exists(engine, "parser_results"):
+        _add_column_if_missing(engine, "parser_results", "telegram_post_url", "VARCHAR(1024)")
