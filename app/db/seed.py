@@ -43,6 +43,20 @@ DEFAULT_TELEGRAM_SEARCH = {
 }
 
 
+def _ensure_avito_official_config(extra_config: dict | None) -> dict:
+    config = copy.deepcopy(extra_config) if isinstance(extra_config, dict) else {}
+    raw_avito = config.get("avito_api")
+    avito_api = copy.deepcopy(raw_avito) if isinstance(raw_avito, dict) else {}
+    avito_api.setdefault("status", ["active"])
+    avito_api.setdefault("per_page", 100)
+    avito_api.setdefault("max_pages", 200)
+    avito_api.setdefault("with_item_details", True)
+    avito_api.setdefault("details_limit", 300)
+    config["avito_api"] = avito_api
+    config["mode"] = "avito_official_api"
+    return config
+
+
 def _ensure_telegram_filters(extra_config: dict | None) -> dict:
     def _to_int(value: object, fallback: int) -> int:
         try:
@@ -123,7 +137,7 @@ def seed_initial_data(db: Session) -> None:
                     is_active=False,
                     poll_minutes=1440,
                     max_items_per_run=10000,
-                    extra_config={"mode": "html"},
+                    extra_config=_ensure_avito_official_config(None),
                 ),
                 ParserSource(
                     agency_id=agency.id,
@@ -177,12 +191,15 @@ def seed_initial_data(db: Session) -> None:
                 source.is_active = True
             if source.name == "Cian Commercial" and source.source_url == "https://www.cian.ru/rent/commercial/":
                 source.source_url = "https://www.cian.ru/commercial/"
+            if source.source_channel == SourceChannel.avito:
+                source.max_items_per_run = max(int(source.max_items_per_run or 10000), 10000)
+                source.extra_config = _ensure_avito_official_config(source.extra_config)
             if source.source_channel == SourceChannel.telegram:
                 source.max_items_per_run = max(int(source.max_items_per_run or 10000), 10000)
                 if source.source_url == "https://t.me/s/realty":
                     source.source_url = "https://t.me"
                 source.extra_config = _ensure_telegram_filters(source.extra_config)
-            if source.name in {"Avito Udmurtia Commercial", "Cian Commercial", "Domclick Commercial"}:
+            if source.name in {"Cian Commercial", "Domclick Commercial"}:
                 source.extra_config = source.extra_config or {"mode": "html"}
                 if source.last_success_at is None and source.last_error:
                     source.is_active = False

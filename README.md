@@ -98,6 +98,14 @@ Parser automation:
 - `PARSER_MIRROR_FALLBACK_ENABLED=true`
 - `PARSER_MIRROR_BASE_URL=https://r.jina.ai/http://`
 
+Avito official API mode (recommended for production):
+- `AVITO_API_BASE_URL=https://api.avito.ru`
+- `AVITO_TOKEN_URL=https://api.avito.ru/token`
+- `AVITO_CLIENT_ID=<avito-client-id>`
+- `AVITO_CLIENT_SECRET=<avito-client-secret>`
+- `AVITO_USER_ID=<avito-user-id>`
+- `AVITO_REQUEST_TIMEOUT_SEC=25`
+
 Telegram API search mode (optional, for hashtag/channel discovery):
 - `TELEGRAM_API_ID=<telegram-api-id>`
 - `TELEGRAM_API_HASH=<telegram-api-hash>`
@@ -123,6 +131,29 @@ Telephony and transcription:
    - deduplicates them via existing dedup pipeline,
    - writes run history with counts and errors.
 4. You can force an immediate run with `Run parser now` button or API.
+
+### Avito: Official API Mode (No HTML Scraping)
+
+For `source_channel=avito`, set `mode=avito_official_api` and pass optional settings in `extra_config`:
+
+```json
+{
+  "mode": "avito_official_api",
+  "avito_api": {
+    "user_id": "123456",
+    "status": ["active"],
+    "per_page": 100,
+    "max_pages": 200,
+    "with_item_details": true,
+    "details_limit": 300
+  }
+}
+```
+
+Notes:
+- This mode uses Avito OAuth (`client_credentials`) via `https://api.avito.ru/token`.
+- Collector fetches listing data from official endpoints (`/core/v1/items` and optional per-item detail endpoint).
+- It is intended for your authorized Avito business account scope, not unrestricted public scraping.
 
 ### Telegram: Search by Hashtags and Discover Channels
 

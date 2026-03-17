@@ -107,6 +107,9 @@ DEFAULT_TELEGRAM_SEARCH_QUERIES = (
     "\u0441\u043a\u043b\u0430\u0434 \u0438\u0436\u0435\u0432\u0441\u043a",
     "\u043f\u0440\u043e\u0434\u0430\u0436\u0430 \u043a\u043e\u043c\u043c\u0435\u0440\u0447\u0435\u0441\u043a\u043e\u0439 \u043d\u0435\u0434\u0432\u0438\u0436\u0438\u043c\u043e\u0441\u0442\u0438",
 )
+DEFAULT_AVITO_ITEM_STATUSES = ("active",)
+AVITO_ALLOWED_ITEM_STATUSES = {"active", "removed", "old", "blocked", "rejected"}
+_AVITO_TOKEN_CACHE: dict[str, Any] = {"client_id": "", "access_token": "", "expires_at": None}
 
 
 def _normalize_text(value: str | None) -> str:
@@ -409,6 +412,106 @@ def _collect_marketplace_items(source: ParserSource) -> list[ParserIngestItem]:
     return items
 
 
+def _collect_avito_official_items(source: ParserSource) -> list[ParserIngestItem]:
+    avito_config = _avito_api_config(source)
+    client_id, client_secret, user_id = _require_avito_api_credentials(avito_config)
+    token = _get_avito_access_token(client_id, client_secret)
+    max_items = min(source.max_items_per_run, settings.parser_max_items_per_source)
+
+    items: list[ParserIngestItem] = []
+    details_fetched = 0
+    page = 1
+    while len(items) < max_items and page <= int(avito_config["max_pages"]):
+        per_page = min(int(avito_config["per_page"]), max_items - len(items), 100)
+        params: dict[str, Any] = {"per_page": per_page, "page": page}
+        status_values: tuple[str, ...] = avito_config["status"]
+        if status_values:
+            params["status"] = ",".join(status_values)
+        updated_at_from = _normalize_text(str(avito_config["updated_at_from"] or ""))
+        if updated_at_from:
+            params["updatedAtFrom"] = updated_at_from
+        category = int(avito_config["category"] or 0)
+        if category > 0:
+            params["category"] = category
+
+        response = _avito_api_request("GET", "/core/v1/items", token, params=params)
+        resources = response.get("resources")
+        if not isinstance(resources, list) or not resources:
+            break
+
+        for raw_item in resources:
+            if not isinstance(raw_item, dict):
+                continue
+            raw_item_id = raw_item.get("id")
+            external_id = _normalize_text(str(raw_item_id or ""))
+            title = _normalize_text(str(raw_item.get("title") or ""))
+            if not title:
+                title = f"Avito item {external_id}" if external_id else "Avito item"
+            address = _normalize_text(str(raw_item.get("address") or "")) or None
+            raw_url = _normalize_text(str(raw_item.get("url") or "")) or source.source_url
+            status = _normalize_text(str(raw_item.get("status") or ""))
+            category_payload = raw_item.get("category") if isinstance(raw_item.get("category"), dict) else {}
+            category_name = _normalize_text(str(category_payload.get("name") or ""))
+            price_rub = _to_float(raw_item.get("price"))
+            item_payload: dict[str, Any] = {
+                "source_name": source.name,
+                "source_url": source.source_url,
+                "parser": "avito_official_api",
+                "status": status,
+                "category": category_payload,
+                "list_page": page,
+            }
+            if (
+                bool(avito_config.get("with_item_details", True))
+                and user_id
+                and external_id
+                and details_fetched < int(avito_config["details_limit"])
+            ):
+                try:
+                    item_payload["item_detail"] = _avito_api_request(
+                        "GET",
+                        f"/core/v1/accounts/{user_id}/items/{external_id}/",
+                        token,
+                    )
+                    details_fetched += 1
+                except Exception:
+                    # Soft-fail on detail enrichment: keep base listing data.
+                    pass
+
+            analysis_text = _normalize_text(" ".join([title, address or "", category_name, status]))
+            items.append(
+                ParserIngestItem(
+                    source_channel=SourceChannel.avito,
+                    source_external_id=external_id or _extract_external_id(raw_url, title),
+                    raw_url=raw_url,
+                    title=title[:255],
+                    description=analysis_text[:4000] or title[:255],
+                    normalized_address=address,
+                    city=source.city,
+                    region_code=source.region_code,
+                    area_sqm=None,
+                    price_rub=price_rub,
+                    contact_name=source.name,
+                    contact_phone=None,
+                    contact_email=None,
+                    intent=_detect_intent(analysis_text),
+                    payload=item_payload,
+                )
+            )
+            if len(items) >= max_items:
+                break
+
+        if len(resources) < per_page:
+            break
+        page += 1
+
+    if not items:
+        raise ValueError(
+            "Avito official API returned no items. Check AVITO credentials, account rights, and avito_api filters."
+        )
+    return items
+
+
 def _normalize_telegram_url(source_url: str) -> str:
     candidate = source_url.strip()
     if candidate.startswith("https://t.me/s/"):
@@ -485,6 +588,130 @@ def _safe_int(value: object, default: int, minimum: int, maximum: int) -> int:
     except Exception:
         number = default
     return max(minimum, min(maximum, number))
+
+
+def _avito_status_list(raw_value: object) -> tuple[str, ...]:
+    if isinstance(raw_value, str):
+        parts = [segment.strip().lower() for segment in raw_value.replace("\n", ",").split(",")]
+    elif isinstance(raw_value, list):
+        parts = [str(segment).strip().lower() for segment in raw_value]
+    else:
+        parts = []
+
+    unique: list[str] = []
+    seen: set[str] = set()
+    for part in parts:
+        if not part or part in seen or part not in AVITO_ALLOWED_ITEM_STATUSES:
+            continue
+        seen.add(part)
+        unique.append(part)
+    return tuple(unique) if unique else DEFAULT_AVITO_ITEM_STATUSES
+
+
+def _avito_api_config(source: ParserSource) -> dict[str, Any]:
+    extra_config = source.extra_config if isinstance(source.extra_config, dict) else {}
+    raw_avito = extra_config.get("avito_api")
+    avito = raw_avito if isinstance(raw_avito, dict) else {}
+    return {
+        "client_id": _normalize_text(str(avito.get("client_id") or settings.avito_client_id)),
+        "client_secret": _normalize_text(str(avito.get("client_secret") or settings.avito_client_secret)),
+        "user_id": _normalize_text(str(avito.get("user_id") or settings.avito_user_id)),
+        "per_page": _safe_int(avito.get("per_page"), default=100, minimum=1, maximum=100),
+        "max_pages": _safe_int(avito.get("max_pages"), default=200, minimum=1, maximum=2000),
+        "status": _avito_status_list(avito.get("status")),
+        "updated_at_from": _normalize_text(str(avito.get("updated_at_from") or "")),
+        "category": _safe_int(avito.get("category"), default=0, minimum=0, maximum=10_000_000),
+        "with_item_details": bool(avito.get("with_item_details", True)),
+        "details_limit": _safe_int(avito.get("details_limit"), default=300, minimum=0, maximum=10000),
+    }
+
+
+def _require_avito_api_credentials(avito_config: dict[str, Any]) -> tuple[str, str, str]:
+    client_id = _normalize_text(str(avito_config.get("client_id") or ""))
+    client_secret = _normalize_text(str(avito_config.get("client_secret") or ""))
+    user_id = _normalize_text(str(avito_config.get("user_id") or ""))
+    if not client_id or not client_secret:
+        raise ValueError(
+            "Avito API credentials are missing. Set AVITO_CLIENT_ID and AVITO_CLIENT_SECRET in .env "
+            "or source.extra_config.avito_api."
+        )
+    return client_id, client_secret, user_id
+
+
+def _get_avito_access_token(client_id: str, client_secret: str) -> str:
+    now = datetime.now(timezone.utc)
+    cache_client_id = str(_AVITO_TOKEN_CACHE.get("client_id") or "")
+    cache_token = str(_AVITO_TOKEN_CACHE.get("access_token") or "")
+    cache_expires_at = _AVITO_TOKEN_CACHE.get("expires_at")
+    if (
+        cache_token
+        and cache_client_id == client_id
+        and isinstance(cache_expires_at, datetime)
+        and cache_expires_at > now
+    ):
+        return cache_token
+
+    response = requests.post(
+        settings.avito_token_url,
+        data={
+            "grant_type": "client_credentials",
+            "client_id": client_id,
+            "client_secret": client_secret,
+        },
+        headers={"User-Agent": USER_AGENT, "Accept": "application/json"},
+        timeout=settings.avito_request_timeout_sec,
+    )
+    try:
+        response.raise_for_status()
+    except Exception as exc:
+        snippet = _normalize_text(response.text[:300]) if response.text else ""
+        raise ValueError(f"Avito OAuth token request failed ({response.status_code}): {snippet}") from exc
+
+    payload = response.json() if response.text else {}
+    token = _normalize_text(str(payload.get("access_token") or ""))
+    if not token:
+        raise ValueError("Avito OAuth token response does not contain access_token.")
+    expires_in = _safe_int(payload.get("expires_in"), default=3600, minimum=60, maximum=86_400)
+    _AVITO_TOKEN_CACHE["client_id"] = client_id
+    _AVITO_TOKEN_CACHE["access_token"] = token
+    _AVITO_TOKEN_CACHE["expires_at"] = now + timedelta(seconds=max(30, expires_in - 30))
+    return token
+
+
+def _avito_api_request(
+    method: str,
+    path: str,
+    token: str,
+    *,
+    params: dict[str, Any] | None = None,
+    payload: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    normalized_path = path if path.startswith("/") else f"/{path}"
+    base_url = settings.avito_api_base_url.rstrip("/")
+    response = requests.request(
+        method=method.upper(),
+        url=f"{base_url}{normalized_path}",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/json",
+            "User-Agent": USER_AGENT,
+        },
+        params=params,
+        json=payload,
+        timeout=settings.avito_request_timeout_sec,
+    )
+    if response.status_code >= 400:
+        snippet = _normalize_text(response.text[:300]) if response.text else ""
+        raise ValueError(f"Avito API request failed ({response.status_code}) {normalized_path}: {snippet}")
+    if not response.text:
+        return {}
+    try:
+        parsed = response.json()
+    except Exception as exc:
+        raise ValueError(f"Avito API returned non-JSON response for {normalized_path}.") from exc
+    if isinstance(parsed, dict):
+        return parsed
+    raise ValueError(f"Avito API returned unexpected payload type for {normalized_path}.")
 
 
 def _telegram_search_config(source: ParserSource) -> dict[str, Any]:
@@ -1018,6 +1245,8 @@ def collect_items_for_source(source: ParserSource) -> list[ParserIngestItem]:
         return _collect_rss_items(source)
     if mode == "json_api":
         return _collect_json_api_items(source)
+    if source.source_channel == SourceChannel.avito and mode in {"avito_official_api", "avito_api"}:
+        return _collect_avito_official_items(source)
     if source.source_channel == SourceChannel.telegram:
         if mode == "telegram_api_search":
             return _collect_telegram_api_search_items(source)
