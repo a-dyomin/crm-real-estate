@@ -28,6 +28,13 @@ const state = {
   currentTab: "home",
   dragEntity: null,
   parserSources: [],
+  parserResults: {
+    page: 1,
+    pageSize: 20,
+    pages: 1,
+    total: 0,
+    query: "",
+  },
 };
 
 if (!token) {
@@ -211,8 +218,48 @@ async function loadDealsKanban() {
   buildKanban("dealKanban", deals, dealStages, "deal");
 }
 
-async function loadParserHub() {
-  const results = await api("/parser/results");
+async function loadParserHub(options = {}) {
+  if (options.resetPage) {
+    state.parserResults.page = 1;
+  }
+  if (typeof options.query === "string") {
+    state.parserResults.query = options.query.trim();
+  }
+
+  const searchInput = document.getElementById("parserSearchInput");
+  if (searchInput) {
+    if (typeof options.query === "string") {
+      searchInput.value = options.query;
+    } else if (state.parserResults.query && !searchInput.value) {
+      searchInput.value = state.parserResults.query;
+    }
+  }
+
+  const query = (searchInput?.value || state.parserResults.query || "").trim();
+  state.parserResults.query = query;
+
+  const params = new URLSearchParams();
+  params.set("page", String(state.parserResults.page));
+  params.set("page_size", String(state.parserResults.pageSize));
+  if (query) {
+    params.set("q", query);
+  }
+
+  const response = await api(`/parser/results?${params.toString()}`);
+  const isLegacyList = Array.isArray(response);
+  const results = isLegacyList ? response : Array.isArray(response.items) ? response.items : [];
+
+  if (!isLegacyList) {
+    state.parserResults.page = Number(response.page || 1);
+    state.parserResults.pages = Number(response.pages || 1);
+    state.parserResults.total = Number(response.total || 0);
+    state.parserResults.pageSize = Number(response.page_size || state.parserResults.pageSize);
+  } else {
+    state.parserResults.page = 1;
+    state.parserResults.pages = 1;
+    state.parserResults.total = results.length;
+  }
+
   const rows = document.getElementById("parserRows");
   rows.innerHTML = "";
   for (const record of results) {
@@ -235,6 +282,23 @@ async function loadParserHub() {
       </td>
     `;
     rows.appendChild(tr);
+  }
+
+  const pageInfo = document.getElementById("parserPageInfo");
+  if (pageInfo) {
+    pageInfo.textContent = `Страница ${state.parserResults.page} из ${state.parserResults.pages}`;
+  }
+  const meta = document.getElementById("parserResultsMeta");
+  if (meta) {
+    meta.textContent = `Найдено: ${state.parserResults.total}. Показано: ${results.length}.`;
+  }
+  const prevBtn = document.getElementById("parserPrevPageBtn");
+  if (prevBtn instanceof HTMLButtonElement) {
+    prevBtn.disabled = state.parserResults.page <= 1;
+  }
+  const nextBtn = document.getElementById("parserNextPageBtn");
+  if (nextBtn instanceof HTMLButtonElement) {
+    nextBtn.disabled = state.parserResults.page >= state.parserResults.pages;
   }
 }
 
@@ -544,6 +608,34 @@ async function boot() {
     await Promise.all([loadParserHub(), loadParserRuns(), loadLeadsKanban(), loadDealsKanban(), loadDashboard()]);
   });
 
+  document.getElementById("parserSearchForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    state.parserResults.page = 1;
+    await loadParserHub({ resetPage: true });
+  });
+
+  document.getElementById("parserSearchResetBtn").addEventListener("click", async () => {
+    const input = document.getElementById("parserSearchInput");
+    if (input instanceof HTMLInputElement) {
+      input.value = "";
+    }
+    state.parserResults.page = 1;
+    state.parserResults.query = "";
+    await loadParserHub({ resetPage: true, query: "" });
+  });
+
+  document.getElementById("parserPrevPageBtn").addEventListener("click", async () => {
+    if (state.parserResults.page <= 1) return;
+    state.parserResults.page -= 1;
+    await loadParserHub();
+  });
+
+  document.getElementById("parserNextPageBtn").addEventListener("click", async () => {
+    if (state.parserResults.page >= state.parserResults.pages) return;
+    state.parserResults.page += 1;
+    await loadParserHub();
+  });
+
   document.getElementById("sourceForm").addEventListener("submit", async (event) => {
     event.preventDefault();
     const payload = Object.fromEntries(new FormData(event.target).entries());
@@ -622,7 +714,8 @@ async function boot() {
 
   document.getElementById("runParserNowBtn").addEventListener("click", async () => {
     await api("/parser/run-now", { method: "POST", body: "{}" });
-    await Promise.all([loadParserRuns(), loadParserHub(), loadDashboard()]);
+    state.parserResults.page = 1;
+    await Promise.all([loadParserRuns(), loadParserHub({ resetPage: true }), loadDashboard()]);
   });
 
   document.getElementById("ingestForm").addEventListener("submit", async (event) => {
@@ -635,7 +728,8 @@ async function boot() {
     item.payload = { entered_from_ui: true };
     await api("/parser/ingest", { method: "POST", body: JSON.stringify({ items: [item] }) });
     event.target.reset();
-    await Promise.all([loadParserHub(), loadParserRuns(), loadDashboard()]);
+    state.parserResults.page = 1;
+    await Promise.all([loadParserHub({ resetPage: true }), loadParserRuns(), loadDashboard()]);
   });
 
   document.getElementById("callManualForm").addEventListener("submit", async (event) => {

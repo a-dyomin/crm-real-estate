@@ -148,6 +148,29 @@ body {
   margin-bottom: 10px;
 }
 
+.parser-results-head {
+  margin-top: 14px;
+}
+
+.parser-search-form {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.parser-search-form input {
+  min-width: 280px;
+}
+
+.parser-pager {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin: 6px 0 10px;
+  flex-wrap: wrap;
+}
+
 .tab-actions {
   display: flex;
   gap: 8px;
@@ -236,6 +259,11 @@ button.secondary {
 
 button.danger {
   background: var(--danger);
+}
+
+button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 table {
@@ -373,6 +401,11 @@ details {
 
   .grid {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .parser-search-form input {
+    min-width: 0;
+    width: 100%;
   }
 }
 

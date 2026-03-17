@@ -554,6 +554,38 @@ def _passes_telegram_filters(text: str, source: ParserSource, region_context: st
     return True
 
 
+def _is_relevant_telegram_channel(username: str, title: str, query: str, source: ParserSource) -> bool:
+    composite = _normalize_text(" ".join([username, title]))
+    region_context = _normalize_text(" ".join([composite, query]))
+    normalized = composite.lower()
+    region_normalized = region_context.lower()
+    extra_config = source.extra_config if isinstance(source.extra_config, dict) else {}
+    raw_filters = extra_config.get("telegram_filters")
+    filters = raw_filters if isinstance(raw_filters, dict) else {}
+    commercial_keywords = _telegram_filter_keywords(
+        filters.get("commercial_keywords"), DEFAULT_TELEGRAM_COMMERCIAL_KEYWORDS
+    )
+    require_real_estate_keyword = bool(filters.get("require_real_estate_keyword", True))
+    real_estate_keywords = _telegram_filter_keywords(
+        filters.get("real_estate_keywords"), DEFAULT_TELEGRAM_REAL_ESTATE_KEYWORDS
+    )
+    exclude_keywords = _telegram_filter_keywords(
+        filters.get("exclude_keywords"), DEFAULT_TELEGRAM_EXCLUDE_KEYWORDS
+    )
+    udmurtia_only = bool(filters.get("udmurtia_only", True))
+    udmurtia_keywords = _telegram_filter_keywords(filters.get("region_keywords"), DEFAULT_TELEGRAM_UDMURTIA_KEYWORDS)
+
+    if any(keyword in normalized for keyword in exclude_keywords):
+        return False
+    if not any(keyword in normalized for keyword in commercial_keywords):
+        return False
+    if require_real_estate_keyword and not any(keyword in normalized for keyword in real_estate_keywords):
+        return False
+    if udmurtia_only and not any(keyword in region_normalized for keyword in udmurtia_keywords):
+        return False
+    return True
+
+
 def _build_telegram_item(
     source: ParserSource,
     *,
@@ -662,6 +694,7 @@ def _persist_telegram_channel_catalog(
     raw_search = extra_config.get("telegram_search")
     search = dict(raw_search) if isinstance(raw_search, dict) else {}
 
+    allowed_channels = {channel for channel in search_config.get("allowed_channels", ())}
     existing_rows = search.get("discovered_channels")
     existing: dict[str, dict[str, Any]] = {}
     if isinstance(existing_rows, list):
@@ -671,12 +704,22 @@ def _persist_telegram_channel_catalog(
             username = _normalize_telegram_channel(row.get("username"))
             if not username:
                 continue
+            title = _normalize_text(str(row.get("title") or f"@{username}")) or f"@{username}"
+            matched_queries = row.get("matched_queries") if isinstance(row.get("matched_queries"), list) else []
+            if username not in allowed_channels:
+                candidate_queries = [
+                    _normalize_text(str(item))
+                    for item in matched_queries
+                    if _normalize_text(str(item))
+                ] or [""]
+                if not any(_is_relevant_telegram_channel(username, title, query, source) for query in candidate_queries):
+                    continue
             existing[username] = {
                 "username": username,
-                "title": _normalize_text(str(row.get("title") or f"@{username}")) or f"@{username}",
+                "title": title,
                 "first_seen_at": row.get("first_seen_at"),
                 "last_seen_at": row.get("last_seen_at"),
-                "matched_queries": row.get("matched_queries") if isinstance(row.get("matched_queries"), list) else [],
+                "matched_queries": matched_queries,
             }
 
     now_iso = datetime.now(timezone.utc).isoformat()
@@ -821,6 +864,8 @@ async def _collect_telegram_api_search_items_async(source: ParserSource) -> list
                     if not bool(getattr(chat, "broadcast", False) or getattr(chat, "megagroup", False)):
                         continue
                     title = _normalize_text(str(getattr(chat, "title", "") or f"@{username}"))
+                    if not _is_relevant_telegram_channel(str(username), title, query, source):
+                        continue
                     remember_channel(username, title, query)
 
         for query in query_list:

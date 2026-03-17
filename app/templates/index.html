@@ -191,6 +191,26 @@
             <button type="submit">Добавить в Parser Hub</button>
           </form>
 
+          <div class="tab-title parser-results-head">
+            <h3>Результаты парсера</h3>
+            <form id="parserSearchForm" class="parser-search-form">
+              <input
+                id="parserSearchInput"
+                name="q"
+                placeholder="Поиск: объект, контакт, телефон, URL"
+                maxlength="200"
+              />
+              <button type="submit" class="secondary">Поиск</button>
+              <button type="button" id="parserSearchResetBtn" class="secondary">Сброс</button>
+            </form>
+          </div>
+          <div class="parser-pager">
+            <button id="parserPrevPageBtn" class="secondary">Назад</button>
+            <span id="parserPageInfo" class="muted">Страница 1 из 1</span>
+            <button id="parserNextPageBtn" class="secondary">Вперед</button>
+            <span id="parserResultsMeta" class="muted">Найдено: 0</span>
+          </div>
+
           <table>
             <thead>
               <tr>

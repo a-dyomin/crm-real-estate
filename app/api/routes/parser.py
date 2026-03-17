@@ -1,5 +1,7 @@
+import math
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import Select, select
+from sqlalchemy import Select, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, require_roles
@@ -13,6 +15,7 @@ from app.schemas.deal import DealRead
 from app.schemas.lead import LeadRead
 from app.schemas.parser import (
     ParserIngestRequest,
+    ParserResultPageRead,
     ParserRunRead,
     ParserResultRead,
     ParserSourceCreate,
@@ -175,20 +178,46 @@ def ingest_parser_batch(
     return created
 
 
-@router.get("/results", response_model=list[ParserResultRead])
+@router.get("/results", response_model=ParserResultPageRead)
 def list_parser_results(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
     status_filter: ParserResultStatus | None = Query(default=None, alias="status"),
     source_filter: SourceChannel | None = Query(default=None, alias="source"),
-) -> list[ParserResult]:
+    q: str | None = Query(default=None, min_length=1, max_length=200),
+    page: int = Query(default=1, ge=1, le=10_000),
+    page_size: int = Query(default=20, ge=1, le=100),
+) -> ParserResultPageRead:
     stmt: Select[tuple[ParserResult]] = select(ParserResult).where(ParserResult.agency_id == current_user.agency_id)
     if status_filter:
         stmt = stmt.where(ParserResult.status == status_filter)
     if source_filter:
         stmt = stmt.where(ParserResult.source_channel == source_filter)
-    stmt = stmt.order_by(ParserResult.id.desc())
-    return db.execute(stmt).scalars().all()
+    normalized_query = (q or "").strip()
+    if normalized_query:
+        search_pattern = f"%{normalized_query}%"
+        stmt = stmt.where(
+            or_(
+                ParserResult.title.ilike(search_pattern),
+                ParserResult.description.ilike(search_pattern),
+                ParserResult.normalized_address.ilike(search_pattern),
+                ParserResult.contact_name.ilike(search_pattern),
+                ParserResult.contact_phone.ilike(search_pattern),
+                ParserResult.contact_email.ilike(search_pattern),
+                ParserResult.raw_url.ilike(search_pattern),
+                ParserResult.telegram_post_url.ilike(search_pattern),
+            )
+        )
+
+    total_stmt = select(func.count()).select_from(stmt.subquery())
+    total = int(db.execute(total_stmt).scalar() or 0)
+    pages = max(1, math.ceil(total / page_size)) if total else 1
+    current_page = min(page, pages)
+    offset = (current_page - 1) * page_size
+
+    paged_stmt = stmt.order_by(ParserResult.id.desc()).offset(offset).limit(page_size)
+    items = db.execute(paged_stmt).scalars().all()
+    return ParserResultPageRead(items=items, total=total, page=current_page, page_size=page_size, pages=pages)
 
 
 @router.post(

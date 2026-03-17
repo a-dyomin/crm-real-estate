@@ -58,6 +58,14 @@ class ParserResultRead(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class ParserResultPageRead(BaseModel):
+    items: list[ParserResultRead]
+    total: int
+    page: int
+    page_size: int
+    pages: int
+
+
 class ParserToLeadRequest(BaseModel):
     owner_user_id: int | None = None
     title: str | None = None
