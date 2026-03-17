@@ -24,13 +24,24 @@ Production-oriented CRM baseline for a regional commercial real estate agency.
 - SQLite (default for pilot)
 - Vanilla JS + Jinja templates
 
-## Quick Start
+## Quick Start (Linux/macOS, deploy-friendly)
 
 ```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install --upgrade pip
+.venv/bin/python -m pip install -e .[dev]
+cp .env.example .env
+.venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
+
+## Quick Start (Windows PowerShell)
+
+```powershell
 python -m venv .venv
-.venv\Scripts\python -m pip install -e .[dev]
-copy .env.example .env
-.venv\Scripts\python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+.\.venv\Scripts\python -m pip install --upgrade pip
+.\.venv\Scripts\python -m pip install -e .[dev]
+Copy-Item .env.example .env
+.\.venv\Scripts\python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
 - App: `http://127.0.0.1:8000/`
@@ -62,7 +73,7 @@ Telephony and transcription:
 - `OPENAI_BASE_URL=https://api.openai.com/v1`
 - `TRANSCRIPTION_MODEL=whisper-1`
 
-## Parser Hub: Automatic Collection Every 10 Minutes
+## Parser Hub: Automatic Collection Every 24 Hours
 
 1. Configure sources in UI (`Parser Hub -> Auto Sources`) or API.
 2. Keep sources active (`is_active=true`).
