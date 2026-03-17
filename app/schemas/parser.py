@@ -85,7 +85,7 @@ class ParserSourceCreate(BaseModel):
     region_code: str = "RU-UDM"
     is_active: bool = True
     poll_minutes: int = Field(default=1440, ge=60, le=10080)
-    max_items_per_run: int = Field(default=20, ge=1, le=200)
+    max_items_per_run: int = Field(default=10000, ge=1, le=10000)
     extra_config: dict[str, Any] | None = None
 
 
@@ -96,7 +96,7 @@ class ParserSourceUpdate(BaseModel):
     region_code: str | None = None
     is_active: bool | None = None
     poll_minutes: int | None = Field(default=None, ge=60, le=10080)
-    max_items_per_run: int | None = Field(default=None, ge=1, le=200)
+    max_items_per_run: int | None = Field(default=None, ge=1, le=10000)
     extra_config: dict[str, Any] | None = None
 
 

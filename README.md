@@ -93,7 +93,7 @@ Parser automation:
 - `PARSER_SCHEDULER_ENABLED=true`
 - `PARSER_POLL_INTERVAL_MINUTES=1440`
 - `PARSER_REQUEST_TIMEOUT_SEC=25`
-- `PARSER_MAX_ITEMS_PER_SOURCE=20`
+- `PARSER_MAX_ITEMS_PER_SOURCE=10000`
 - `PARSER_DETAIL_FETCH_LIMIT=10`
 - `PARSER_MIRROR_FALLBACK_ENABLED=true`
 - `PARSER_MIRROR_BASE_URL=https://r.jina.ai/http://`
@@ -102,8 +102,8 @@ Telegram API search mode (optional, for hashtag/channel discovery):
 - `TELEGRAM_API_ID=<telegram-api-id>`
 - `TELEGRAM_API_HASH=<telegram-api-hash>`
 - `TELEGRAM_SESSION_STRING=<telethon-string-session>`
-- `TELEGRAM_CHANNEL_DISCOVERY_LIMIT=20`
-- `TELEGRAM_SEARCH_LIMIT_PER_QUERY=30`
+- `TELEGRAM_CHANNEL_DISCOVERY_LIMIT=10000`
+- `TELEGRAM_SEARCH_LIMIT_PER_QUERY=10000`
 - `TELEGRAM_SEARCH_DAYS_BACK=30`
 
 Telephony and transcription:
@@ -139,8 +139,8 @@ For `source_channel=telegram`, set `mode=telegram_api_search` and pass JSON in `
       "аренда офис ижевск"
     ],
     "discover_channels": true,
-    "channels_limit": 20,
-    "posts_limit_per_query": 30,
+    "channels_limit": 10000,
+    "posts_limit_per_query": 10000,
     "days_back": 30,
     "whitelist_enabled": false,
     "allowed_channels": []

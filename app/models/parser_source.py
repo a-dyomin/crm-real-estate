@@ -20,7 +20,7 @@ class ParserSource(Base):
     region_code: Mapped[str] = mapped_column(String(32), default="RU-UDM", nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, index=True)
     poll_minutes: Mapped[int] = mapped_column(Integer, default=1440, nullable=False)
-    max_items_per_run: Mapped[int] = mapped_column(Integer, default=20, nullable=False)
+    max_items_per_run: Mapped[int] = mapped_column(Integer, default=10000, nullable=False)
     extra_config: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     last_run_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     last_success_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

@@ -1,4 +1,6 @@
-﻿from sqlalchemy import Select, select
+import copy
+
+from sqlalchemy import Select, select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -33,8 +35,8 @@ DEFAULT_TELEGRAM_SEARCH = {
         "склад ижевск",
     ],
     "discover_channels": True,
-    "channels_limit": 20,
-    "posts_limit_per_query": 30,
+    "channels_limit": 10000,
+    "posts_limit_per_query": 10000,
     "days_back": 30,
     "whitelist_enabled": False,
     "allowed_channels": [],
@@ -42,8 +44,15 @@ DEFAULT_TELEGRAM_SEARCH = {
 
 
 def _ensure_telegram_filters(extra_config: dict | None) -> dict:
-    config = dict(extra_config or {"mode": "telegram_api_search"})
-    filters = config.get("telegram_filters")
+    def _to_int(value: object, fallback: int) -> int:
+        try:
+            return int(value)  # type: ignore[arg-type]
+        except Exception:
+            return fallback
+
+    config = copy.deepcopy(extra_config) if isinstance(extra_config, dict) else {"mode": "telegram_api_search"}
+    raw_filters = config.get("telegram_filters")
+    filters = copy.deepcopy(raw_filters) if isinstance(raw_filters, dict) else None
     if not isinstance(filters, dict):
         filters = dict(DEFAULT_TELEGRAM_FILTERS)
     filters.setdefault("commercial_only", True)
@@ -52,13 +61,17 @@ def _ensure_telegram_filters(extra_config: dict | None) -> dict:
     filters.setdefault("require_real_estate_keyword", True)
     filters.setdefault("exclude_keywords", list(DEFAULT_TELEGRAM_FILTERS["exclude_keywords"]))
     config["telegram_filters"] = filters
-    search = config.get("telegram_search")
+    raw_search = config.get("telegram_search")
+    search = copy.deepcopy(raw_search) if isinstance(raw_search, dict) else None
     if not isinstance(search, dict):
         search = dict(DEFAULT_TELEGRAM_SEARCH)
     search.setdefault("queries", list(DEFAULT_TELEGRAM_SEARCH["queries"]))
     search.setdefault("discover_channels", True)
-    search.setdefault("channels_limit", 20)
-    search.setdefault("posts_limit_per_query", 30)
+    search.setdefault("channels_limit", 10000)
+    search.setdefault("posts_limit_per_query", 10000)
+    # High-volume mode for Telegram discovery/search: keep hard floor at 10k.
+    search["channels_limit"] = max(_to_int(search.get("channels_limit"), 10000), 10000)
+    search["posts_limit_per_query"] = max(_to_int(search.get("posts_limit_per_query"), 10000), 10000)
     search.setdefault("days_back", 30)
     search.setdefault("whitelist_enabled", False)
     search.setdefault("allowed_channels", [])
@@ -109,7 +122,7 @@ def seed_initial_data(db: Session) -> None:
                     region_code="RU-UDM",
                     is_active=False,
                     poll_minutes=1440,
-                    max_items_per_run=20,
+                    max_items_per_run=10000,
                     extra_config={"mode": "html"},
                 ),
                 ParserSource(
@@ -121,7 +134,7 @@ def seed_initial_data(db: Session) -> None:
                     region_code="RU-UDM",
                     is_active=False,
                     poll_minutes=1440,
-                    max_items_per_run=20,
+                    max_items_per_run=10000,
                     extra_config={"mode": "html"},
                 ),
                 ParserSource(
@@ -133,7 +146,7 @@ def seed_initial_data(db: Session) -> None:
                     region_code="RU-UDM",
                     is_active=False,
                     poll_minutes=1440,
-                    max_items_per_run=20,
+                    max_items_per_run=10000,
                     extra_config={"mode": "html"},
                 ),
                 ParserSource(
@@ -145,7 +158,7 @@ def seed_initial_data(db: Session) -> None:
                     region_code="RU-UDM",
                     is_active=True,
                     poll_minutes=1440,
-                    max_items_per_run=20,
+                    max_items_per_run=10000,
                     extra_config={
                         "mode": "telegram_api_search",
                         "telegram_filters": dict(DEFAULT_TELEGRAM_FILTERS),
@@ -165,6 +178,7 @@ def seed_initial_data(db: Session) -> None:
             if source.name == "Cian Commercial" and source.source_url == "https://www.cian.ru/rent/commercial/":
                 source.source_url = "https://www.cian.ru/commercial/"
             if source.source_channel == SourceChannel.telegram:
+                source.max_items_per_run = max(int(source.max_items_per_run or 10000), 10000)
                 if source.source_url == "https://t.me/s/realty":
                     source.source_url = "https://t.me"
                 source.extra_config = _ensure_telegram_filters(source.extra_config)

@@ -640,7 +640,7 @@ async function boot() {
     event.preventDefault();
     const payload = Object.fromEntries(new FormData(event.target).entries());
     payload.poll_minutes = Number(payload.poll_minutes || 1440);
-    payload.max_items_per_run = Number(payload.max_items_per_run || 20);
+    payload.max_items_per_run = Number(payload.max_items_per_run || 10000);
     const mode = payload.mode || "html";
     const extraRaw = (payload.extra_config_json || "").trim();
     delete payload.mode;

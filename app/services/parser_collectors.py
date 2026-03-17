@@ -498,13 +498,13 @@ def _telegram_search_config(source: ParserSource) -> dict[str, Any]:
             search.get("channels_limit"),
             settings.telegram_channel_discovery_limit,
             minimum=1,
-            maximum=100,
+            maximum=10000,
         ),
         "posts_limit_per_query": _safe_int(
             search.get("posts_limit_per_query"),
             settings.telegram_search_limit_per_query,
             minimum=1,
-            maximum=200,
+            maximum=10000,
         ),
         "days_back": _safe_int(
             search.get("days_back"),
