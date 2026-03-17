@@ -9,17 +9,61 @@ from app.models.parser_source import ParserSource
 from app.models.user import User
 
 
-DEFAULT_TELEGRAM_FILTERS = {"commercial_only": True, "udmurtia_only": True}
+DEFAULT_TELEGRAM_FILTERS = {
+    "commercial_only": True,
+    "udmurtia_only": False,
+    "require_transaction_keyword": True,
+    "require_real_estate_keyword": True,
+    "exclude_keywords": [
+        "квартир",
+        "жилой",
+        "жилье",
+        "новострой",
+        "ипотек",
+        "крипт",
+        "майнинг",
+    ],
+}
+DEFAULT_TELEGRAM_SEARCH = {
+    "queries": [
+        "#коммерческаянедвижимость",
+        "#недвижимостьижевск",
+        "коммерческая недвижимость удмуртия",
+        "аренда офис ижевск",
+        "склад ижевск",
+    ],
+    "discover_channels": True,
+    "channels_limit": 20,
+    "posts_limit_per_query": 30,
+    "days_back": 30,
+    "whitelist_enabled": False,
+    "allowed_channels": [],
+}
 
 
 def _ensure_telegram_filters(extra_config: dict | None) -> dict:
-    config = dict(extra_config or {"mode": "html"})
+    config = dict(extra_config or {"mode": "telegram_api_search"})
     filters = config.get("telegram_filters")
     if not isinstance(filters, dict):
         filters = dict(DEFAULT_TELEGRAM_FILTERS)
     filters.setdefault("commercial_only", True)
-    filters.setdefault("udmurtia_only", True)
+    filters.setdefault("udmurtia_only", False)
+    filters.setdefault("require_transaction_keyword", True)
+    filters.setdefault("require_real_estate_keyword", True)
+    filters.setdefault("exclude_keywords", list(DEFAULT_TELEGRAM_FILTERS["exclude_keywords"]))
     config["telegram_filters"] = filters
+    search = config.get("telegram_search")
+    if not isinstance(search, dict):
+        search = dict(DEFAULT_TELEGRAM_SEARCH)
+    search.setdefault("queries", list(DEFAULT_TELEGRAM_SEARCH["queries"]))
+    search.setdefault("discover_channels", True)
+    search.setdefault("channels_limit", 20)
+    search.setdefault("posts_limit_per_query", 30)
+    search.setdefault("days_back", 30)
+    search.setdefault("whitelist_enabled", False)
+    search.setdefault("allowed_channels", [])
+    config["telegram_search"] = search
+    config.setdefault("mode", "telegram_api_search")
     return config
 
 
@@ -96,13 +140,17 @@ def seed_initial_data(db: Session) -> None:
                     agency_id=agency.id,
                     name="Telegram Realty Feed",
                     source_channel=SourceChannel.telegram,
-                    source_url="https://t.me/s/realty",
+                    source_url="https://t.me",
                     city="Izhevsk",
                     region_code="RU-UDM",
                     is_active=True,
                     poll_minutes=1440,
                     max_items_per_run=20,
-                    extra_config={"mode": "html", "telegram_filters": dict(DEFAULT_TELEGRAM_FILTERS)},
+                    extra_config={
+                        "mode": "telegram_api_search",
+                        "telegram_filters": dict(DEFAULT_TELEGRAM_FILTERS),
+                        "telegram_search": dict(DEFAULT_TELEGRAM_SEARCH),
+                    },
                 ),
             ]
         )
@@ -112,11 +160,13 @@ def seed_initial_data(db: Session) -> None:
                 source.poll_minutes = 1440
             if source.name == "Telegram Channel Template":
                 source.name = "Telegram Realty Feed"
-                source.source_url = "https://t.me/s/realty"
+                source.source_url = "https://t.me"
                 source.is_active = True
             if source.name == "Cian Commercial" and source.source_url == "https://www.cian.ru/rent/commercial/":
                 source.source_url = "https://www.cian.ru/commercial/"
             if source.source_channel == SourceChannel.telegram:
+                if source.source_url == "https://t.me/s/realty":
+                    source.source_url = "https://t.me"
                 source.extra_config = _ensure_telegram_filters(source.extra_config)
             if source.name in {"Avito Udmurtia Commercial", "Cian Commercial", "Domclick Commercial"}:
                 source.extra_config = source.extra_config or {"mode": "html"}

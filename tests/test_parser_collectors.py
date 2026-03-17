@@ -1,4 +1,4 @@
-﻿from app.models.enums import SourceChannel
+from app.models.enums import SourceChannel
 from app.models.parser_source import ParserSource
 from app.services import parser_collectors
 
@@ -57,3 +57,32 @@ def test_collect_telegram_items_filters_out_non_udmurtia_messages(monkeypatch):
     monkeypatch.setattr(parser_collectors, "_fetch_text", lambda _: html)
     items = parser_collectors.collect_items_for_source(_source())
     assert items == []
+
+
+def test_telegram_search_queries_uses_defaults_for_empty_input():
+    queries = parser_collectors._telegram_search_queries([])
+    assert len(queries) >= 3
+
+
+def test_telegram_search_queries_deduplicates_and_limits():
+    queries = parser_collectors._telegram_search_queries(["#A", "#a", "office izhevsk", "office izhevsk"])
+    assert queries == ("#A", "office izhevsk")
+
+
+def test_collect_telegram_api_search_requires_credentials():
+    source = _source(
+        {
+            "mode": "telegram_api_search",
+            "telegram_search": {"queries": ["#office"]},
+            "telegram_filters": {"commercial_only": False, "udmurtia_only": False},
+        }
+    )
+    parser_collectors.settings.telegram_api_id = ""
+    parser_collectors.settings.telegram_api_hash = ""
+    parser_collectors.settings.telegram_session_string = ""
+
+    try:
+        parser_collectors.collect_items_for_source(source)
+        assert False, "Expected ValueError for missing TELEGRAM_API_ID/API_HASH"
+    except ValueError as exc:
+        assert "TELEGRAM_API_ID" in str(exc)

@@ -13,7 +13,7 @@ class LeadCreate(BaseModel):
     contact_phone: str | None = None
     contact_email: str | None = None
     intent: ContactIntent = ContactIntent.unknown
-    status: LeadStatus = LeadStatus.new
+    status: LeadStatus = LeadStatus.new_lead
     source_channel: SourceChannel = SourceChannel.manual
     source_record_id: str | None = None
 
@@ -39,4 +39,3 @@ class LeadRead(BaseModel):
     updated_at: datetime
 
     model_config = {"from_attributes": True}
-

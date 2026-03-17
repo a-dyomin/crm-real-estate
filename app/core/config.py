@@ -24,6 +24,12 @@ class Settings(BaseSettings):
     parser_detail_fetch_limit: int = 10
     parser_mirror_fallback_enabled: bool = True
     parser_mirror_base_url: str = "https://r.jina.ai/http://"
+    telegram_api_id: str = ""
+    telegram_api_hash: str = ""
+    telegram_session_string: str = ""
+    telegram_channel_discovery_limit: int = 20
+    telegram_search_limit_per_query: int = 30
+    telegram_search_days_back: int = 30
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

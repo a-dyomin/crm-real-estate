@@ -13,6 +13,17 @@ from app.models.user import User
 from app.schemas.dashboard import DashboardSummary
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
+PRIMARY_LEAD_STATUSES = [
+    LeadStatus.new_lead,
+    LeadStatus.qualification,
+    LeadStatus.no_answer,
+    LeadStatus.call_center_tasks,
+    LeadStatus.sent_to_commission,
+    LeadStatus.final_no_answer,
+    LeadStatus.deferred_demand,
+    LeadStatus.poor_quality_lead,
+    LeadStatus.high_quality_lead,
+]
 
 
 @router.get(
@@ -71,9 +82,10 @@ def summary(current_user: User = Depends(get_current_user), db: Session = Depend
     lead_counts_stmt: Select[tuple[LeadStatus, int]] = (
         select(Lead.status, func.count(Lead.id)).where(Lead.agency_id == agency_id).group_by(Lead.status)
     )
-    leads_by_status = {status.value: count for status, count in db.execute(lead_counts_stmt).all()}
-    for status in LeadStatus:
-        leads_by_status.setdefault(status.value, 0)
+    leads_by_status = {status.value: 0 for status in PRIMARY_LEAD_STATUSES}
+    for status, count in db.execute(lead_counts_stmt).all():
+        if status in PRIMARY_LEAD_STATUSES:
+            leads_by_status[status.value] = count
 
     deal_counts_stmt: Select[tuple[DealStatus, int]] = (
         select(Deal.status, func.count(Deal.id)).where(Deal.agency_id == agency_id).group_by(Deal.status)

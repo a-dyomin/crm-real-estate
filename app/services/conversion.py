@@ -50,7 +50,7 @@ def parser_result_to_lead(
         contact_phone=parser_result.contact_phone,
         contact_email=parser_result.contact_email,
         intent=parser_result.intent,
-        status=LeadStatus.new,
+        status=LeadStatus.new_lead,
         source_channel=parser_result.source_channel,
         source_record_id=str(parser_result.id),
     )
@@ -81,4 +81,3 @@ def parser_result_to_deal(
     parser_result.status = ParserResultStatus.converted_to_deal
     db.flush()
     return deal
-

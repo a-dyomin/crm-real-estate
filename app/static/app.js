@@ -2,12 +2,18 @@ const apiPrefix = document.body.dataset.apiPrefix;
 const token = localStorage.getItem("cre_token");
 
 const leadStages = [
-  ["new", "New"],
-  ["qualified", "Qualified"],
-  ["appointment_set", "Appointment"],
-  ["converted", "Converted"],
-  ["disqualified", "Disqualified"],
+  ["new_lead", "Новый лид"],
+  ["qualification", "Квалификация"],
+  ["no_answer", "Недозвон"],
+  ["call_center_tasks", "Задачи КЦ"],
+  ["sent_to_commission", "Отправлен на комиссию"],
+  ["final_no_answer", "Конечный недозвон"],
+  ["deferred_demand", "Отложенный спрос"],
+  ["poor_quality_lead", "Некачественный лид"],
+  ["high_quality_lead", "Качественный лид"],
 ];
+
+const leadStatusLabels = Object.fromEntries(leadStages);
 
 const dealStages = [
   ["new", "New"],
@@ -21,6 +27,7 @@ const state = {
   user: null,
   currentTab: "home",
   dragEntity: null,
+  parserSources: [],
 };
 
 if (!token) {
@@ -180,7 +187,7 @@ async function loadDashboard() {
     Object.entries(data.leads_by_status).forEach(([key, value]) => {
       const el = document.createElement("div");
       el.className = "status-item";
-      el.innerHTML = `<span>${escapeHtml(key)}</span><strong>${value}</strong>`;
+      el.innerHTML = `<span>${escapeHtml(leadStatusLabels[key] || key)}</span><strong>${value}</strong>`;
       leadStatus.appendChild(el);
     });
     Object.entries(data.deals_by_status).forEach(([key, value]) => {
@@ -231,8 +238,154 @@ async function loadParserHub() {
   }
 }
 
+function normalizeTelegramChannel(value) {
+  return String(value || "")
+    .trim()
+    .replace(/^@/, "")
+    .split("/", 1)[0]
+    .toLowerCase();
+}
+
+function getTelegramSourceConfig(source) {
+  const extra = source.extra_config && typeof source.extra_config === "object" ? source.extra_config : {};
+  const search =
+    extra.telegram_search && typeof extra.telegram_search === "object" ? extra.telegram_search : {};
+  const filters =
+    extra.telegram_filters && typeof extra.telegram_filters === "object" ? extra.telegram_filters : {};
+
+  const discoveredRaw = Array.isArray(search.discovered_channels) ? search.discovered_channels : [];
+  const discovered = discoveredRaw
+    .filter((row) => row && typeof row === "object")
+    .map((row) => {
+      const username = normalizeTelegramChannel(row.username);
+      const title = String(row.title || `@${username || "unknown"}`);
+      const lastSeenAt = row.last_seen_at || null;
+      const matchedQueries = Array.isArray(row.matched_queries) ? row.matched_queries : [];
+      return { username, title, lastSeenAt, matchedQueries };
+    })
+    .filter((row) => row.username);
+
+  const allowedRaw = Array.isArray(search.allowed_channels) ? search.allowed_channels : [];
+  const allowedSet = new Set(allowedRaw.map((item) => normalizeTelegramChannel(item)).filter(Boolean));
+
+  return {
+    extra,
+    search,
+    filters,
+    discovered,
+    allowedSet,
+    whitelistEnabled: Boolean(search.whitelist_enabled),
+    udmurtiaOnly: Boolean(filters.udmurtia_only),
+  };
+}
+
+async function patchTelegramSourceConfig(sourceId, updater) {
+  const source = state.parserSources.find((item) => Number(item.id) === Number(sourceId));
+  if (!source) return;
+
+  const extra = source.extra_config && typeof source.extra_config === "object"
+    ? JSON.parse(JSON.stringify(source.extra_config))
+    : {};
+  if (!extra.telegram_search || typeof extra.telegram_search !== "object") extra.telegram_search = {};
+  if (!extra.telegram_filters || typeof extra.telegram_filters !== "object") extra.telegram_filters = {};
+
+  updater(extra.telegram_search, extra.telegram_filters, extra);
+
+  await api(`/parser/sources/${sourceId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ extra_config: extra }),
+  });
+  await loadParserSources();
+  await loadParserRuns();
+}
+
+function renderTelegramCatalog(sources, canManageSources) {
+  const container = document.getElementById("telegramCatalog");
+  if (!container) return;
+  container.innerHTML = "";
+
+  const telegramSources = sources.filter((source) => source.source_channel === "telegram");
+  if (!telegramSources.length) {
+    container.textContent = "No telegram sources configured.";
+    container.classList.add("muted");
+    return;
+  }
+  container.classList.remove("muted");
+
+  for (const source of telegramSources) {
+    const cfg = getTelegramSourceConfig(source);
+    const discoveredCount = cfg.discovered.length;
+    const allowedCount = cfg.allowedSet.size;
+
+    const card = document.createElement("div");
+    card.className = "telegram-source-card";
+    card.innerHTML = `
+      <div class="telegram-source-head">
+        <div>
+          <strong>${escapeHtml(source.name)}</strong>
+          <div class="muted">mode: ${escapeHtml(
+            source.extra_config && source.extra_config.mode ? String(source.extra_config.mode) : "html"
+          )}</div>
+        </div>
+        <div class="telegram-inline-actions">
+          <span class="muted">channels: ${discoveredCount}</span>
+          <span class="muted">whitelist: ${allowedCount}</span>
+          <span class="muted">udmurtia_only: ${cfg.udmurtiaOnly ? "on" : "off"}</span>
+        </div>
+      </div>
+      <div class="telegram-inline-actions">
+        ${
+          canManageSources
+            ? `<button class="secondary" data-action="toggle-whitelist" data-source-id="${source.id}">
+                 ${cfg.whitelistEnabled ? "Disable whitelist" : "Enable whitelist"}
+               </button>
+               <button class="secondary" data-action="toggle-udmurtia" data-source-id="${source.id}">
+                 ${cfg.udmurtiaOnly ? "Disable Udmurtia filter" : "Enable Udmurtia filter"}
+               </button>`
+            : ""
+        }
+      </div>
+      <div class="telegram-channels"></div>
+    `;
+
+    const channelsEl = card.querySelector(".telegram-channels");
+    if (channelsEl) {
+      if (!cfg.discovered.length) {
+        channelsEl.innerHTML = `<div class="muted">No discovered channels yet. Run parser to populate catalog.</div>`;
+      } else {
+        for (const channel of cfg.discovered) {
+          const row = document.createElement("div");
+          row.className = "telegram-channel-row";
+          const inWhitelist = cfg.allowedSet.has(channel.username);
+          row.innerHTML = `
+            <div class="telegram-channel-main">
+              <strong>@${escapeHtml(channel.username)}</strong>
+              <span class="muted">${escapeHtml(channel.title)}</span>
+              <span class="muted">last seen: ${escapeHtml(formatDateTime(channel.lastSeenAt))}</span>
+            </div>
+            <div class="telegram-inline-actions">
+              ${
+                canManageSources
+                  ? `<button class="secondary" data-action="toggle-channel" data-source-id="${source.id}" data-username="${escapeHtml(
+                      channel.username
+                    )}">
+                       ${inWhitelist ? "Remove" : "Whitelist"}
+                     </button>`
+                  : ""
+              }
+            </div>
+          `;
+          channelsEl.appendChild(row);
+        }
+      }
+    }
+    container.appendChild(card);
+  }
+}
+
 async function loadParserSources() {
   const sources = await api("/parser/sources");
+  state.parserSources = sources;
   const rows = document.getElementById("sourceRows");
   rows.innerHTML = "";
   const canManageSources = ["admin", "manager"].includes(state.user?.role || "");
@@ -258,6 +411,7 @@ async function loadParserSources() {
     `;
     rows.appendChild(tr);
   }
+  renderTelegramCatalog(sources, canManageSources);
 }
 
 async function loadParserRuns() {
@@ -372,6 +526,9 @@ async function boot() {
   });
 
   document.getElementById("refreshLeadsBtn").addEventListener("click", loadLeadsKanban);
+  document.getElementById("createLeadBtn").addEventListener("click", () => {
+    alert("Форма создания лида будет добавлена следующим шагом.");
+  });
   document.getElementById("refreshDealsBtn").addEventListener("click", loadDealsKanban);
   document.getElementById("refreshCallsBtn").addEventListener("click", loadCalls);
 
@@ -426,6 +583,41 @@ async function boot() {
       body: JSON.stringify({ is_active: sourceActive === "true" }),
     });
     await loadParserSources();
+  });
+
+  document.getElementById("telegramCatalog").addEventListener("click", async (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLButtonElement)) return;
+    const action = target.dataset.action;
+    const sourceId = target.dataset.sourceId;
+    if (!action || !sourceId) return;
+
+    if (action === "toggle-whitelist") {
+      await patchTelegramSourceConfig(sourceId, (search) => {
+        search.whitelist_enabled = !Boolean(search.whitelist_enabled);
+        if (!Array.isArray(search.allowed_channels)) search.allowed_channels = [];
+      });
+      return;
+    }
+
+    if (action === "toggle-udmurtia") {
+      await patchTelegramSourceConfig(sourceId, (_search, filters) => {
+        filters.udmurtia_only = !Boolean(filters.udmurtia_only);
+      });
+      return;
+    }
+
+    if (action === "toggle-channel") {
+      const username = normalizeTelegramChannel(target.dataset.username || "");
+      if (!username) return;
+      await patchTelegramSourceConfig(sourceId, (search) => {
+        const current = Array.isArray(search.allowed_channels) ? search.allowed_channels : [];
+        const normalized = new Set(current.map((item) => normalizeTelegramChannel(item)).filter(Boolean));
+        if (normalized.has(username)) normalized.delete(username);
+        else normalized.add(username);
+        search.allowed_channels = Array.from(normalized).sort();
+      });
+    }
   });
 
   document.getElementById("runParserNowBtn").addEventListener("click", async () => {

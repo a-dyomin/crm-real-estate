@@ -1,7 +1,10 @@
-﻿import hashlib
+import asyncio
+import hashlib
 import json
 import re
 import xml.etree.ElementTree as ET
+from datetime import datetime, timedelta, timezone
+from typing import Any
 from urllib.parse import urljoin, urlparse
 
 import requests
@@ -33,16 +36,54 @@ AREA_RE = re.compile(r"(\d+(?:[.,]\d+)?)\s*(?:\u043c2|\u043c\u00b2|\u043a\u0432\
 ADDRESS_RE = re.compile(r"(?:\u0430\u0434\u0440\u0435\u0441|location)\s*[:\-]\s*([^\n\r|;]{8,150})", re.IGNORECASE)
 DEFAULT_TELEGRAM_COMMERCIAL_KEYWORDS = (
     "\u043a\u043e\u043c\u043c\u0435\u0440\u0447\u0435\u0441\u043a",
+    "\u043d\u0435\u0434\u0432\u0438\u0436\u0438\u043c",
+    "\u043d\u0435\u0436\u0438\u043b",
     "\u043e\u0444\u0438\u0441",
     "\u0441\u043a\u043b\u0430\u0434",
     "\u0442\u043e\u0440\u0433\u043e\u0432",
-    "\u043f\u043e\u043c\u0435\u0449\u0435\u043d",
     "\u0430\u0440\u0435\u043d\u0434\u0430",
     "\u043f\u0440\u043e\u0434\u0430\u0436\u0430",
     "business center",
     "warehouse",
     "retail",
     "office",
+)
+DEFAULT_TELEGRAM_TRANSACTION_KEYWORDS = (
+    "\u0430\u0440\u0435\u043d\u0434",
+    "\u043f\u0440\u043e\u0434\u0430\u0436",
+    "\u043f\u0440\u043e\u0434\u0430\u043c",
+    "\u0441\u0434\u0430\u043c",
+    "\u0441\u043d\u0438\u043c\u0443",
+    "\u043a\u0443\u043f\u043b\u044e",
+    "\u0438\u043d\u0432\u0435\u0441\u0442",
+    "\u0438\u043f\u043e\u0442\u0435\u043a",
+    "lease",
+    "rent",
+    "sale",
+)
+DEFAULT_TELEGRAM_REAL_ESTATE_KEYWORDS = (
+    "\u043d\u0435\u0434\u0432\u0438\u0436\u0438\u043c",
+    "\u043e\u0444\u0438\u0441",
+    "\u043f\u043e\u043c\u0435\u0449\u0435\u043d",
+    "\u0442\u043e\u0440\u0433\u043e\u0432",
+    "\u043d\u0435\u0436\u0438\u043b",
+    "\u0431\u0438\u0437\u043d\u0435\u0441-\u0446\u0435\u043d\u0442\u0440",
+    "\u0431\u0438\u0437\u043d\u0435\u0441 \u0446\u0435\u043d\u0442\u0440",
+    "\u0437\u0435\u043c\u0435\u043b\u044c\u043d",
+    "\u043f\u043b\u043e\u0449\u0430\u0434",
+    "\u043a\u0432.\u043c",
+    "\u043a\u0432 \u043c",
+    "\u043c2",
+    "\u043c\u00b2",
+)
+DEFAULT_TELEGRAM_EXCLUDE_KEYWORDS = (
+    "\u043a\u0432\u0430\u0440\u0442\u0438\u0440",
+    "\u0436\u0438\u043b\u043e\u0439",
+    "\u0436\u0438\u043b\u044c\u0435",
+    "\u043d\u043e\u0432\u043e\u0441\u0442\u0440\u043e\u0439",
+    "\u0438\u043f\u043e\u0442\u0435\u043a",
+    "\u043a\u0440\u0438\u043f\u0442",
+    "\u043c\u0430\u0439\u043d\u0438\u043d\u0433",
 )
 DEFAULT_TELEGRAM_UDMURTIA_KEYWORDS = (
     "\u0443\u0434\u043c\u0443\u0440\u0442",
@@ -57,6 +98,14 @@ DEFAULT_TELEGRAM_UDMURTIA_KEYWORDS = (
     "udmurt",
     "udmurtia",
     "izhevsk",
+)
+DEFAULT_TELEGRAM_SEARCH_QUERIES = (
+    "#\u043a\u043e\u043c\u043c\u0435\u0440\u0447\u0435\u0441\u043a\u0430\u044f\u043d\u0435\u0434\u0432\u0438\u0436\u0438\u043c\u043e\u0441\u0442\u044c",
+    "#\u043d\u0435\u0434\u0432\u0438\u0436\u0438\u043c\u043e\u0441\u0442\u044c\u0438\u0436\u0435\u0432\u0441\u043a",
+    "\u043a\u043e\u043c\u043c\u0435\u0440\u0447\u0435\u0441\u043a\u0430\u044f \u043d\u0435\u0434\u0432\u0438\u0436\u0438\u043c\u043e\u0441\u0442\u044c \u0443\u0434\u043c\u0443\u0440\u0442\u0438\u044f",
+    "\u0430\u0440\u0435\u043d\u0434\u0430 \u043e\u0444\u0438\u0441 \u0438\u0436\u0435\u0432\u0441\u043a",
+    "\u0441\u043a\u043b\u0430\u0434 \u0438\u0436\u0435\u0432\u0441\u043a",
+    "\u043f\u0440\u043e\u0434\u0430\u0436\u0430 \u043a\u043e\u043c\u043c\u0435\u0440\u0447\u0435\u0441\u043a\u043e\u0439 \u043d\u0435\u0434\u0432\u0438\u0436\u0438\u043c\u043e\u0441\u0442\u0438",
 )
 
 
@@ -380,23 +429,158 @@ def _telegram_filter_keywords(raw_value: object, defaults: tuple[str, ...]) -> t
     return defaults
 
 
-def _passes_telegram_filters(text: str, source: ParserSource) -> bool:
+def _telegram_search_queries(raw_value: object) -> tuple[str, ...]:
+    if isinstance(raw_value, str):
+        parts = [segment.strip() for segment in raw_value.replace("\n", ",").split(",")]
+    elif isinstance(raw_value, list):
+        parts = [str(segment).strip() for segment in raw_value]
+    else:
+        parts = []
+
+    unique: list[str] = []
+    seen: set[str] = set()
+    for part in parts:
+        if not part:
+            continue
+        normalized = part.lower()
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        unique.append(part)
+        if len(unique) >= 20:
+            break
+    if unique:
+        return tuple(unique)
+    return DEFAULT_TELEGRAM_SEARCH_QUERIES
+
+
+def _normalize_telegram_channel(value: object) -> str:
+    candidate = str(value or "").strip().lstrip("@")
+    if not candidate:
+        return ""
+    return candidate.split("/", maxsplit=1)[0].lower()
+
+
+def _telegram_channel_list(raw_value: object) -> tuple[str, ...]:
+    if isinstance(raw_value, str):
+        parts = [segment.strip() for segment in raw_value.replace("\n", ",").split(",")]
+    elif isinstance(raw_value, list):
+        parts = [str(segment).strip() for segment in raw_value]
+    else:
+        parts = []
+    unique: list[str] = []
+    seen: set[str] = set()
+    for part in parts:
+        normalized = _normalize_telegram_channel(part)
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        unique.append(normalized)
+    return tuple(unique)
+
+
+def _safe_int(value: object, default: int, minimum: int, maximum: int) -> int:
+    try:
+        number = int(value)  # type: ignore[arg-type]
+    except Exception:
+        number = default
+    return max(minimum, min(maximum, number))
+
+
+def _telegram_search_config(source: ParserSource) -> dict[str, Any]:
+    extra_config = source.extra_config if isinstance(source.extra_config, dict) else {}
+    raw_search = extra_config.get("telegram_search")
+    search = raw_search if isinstance(raw_search, dict) else {}
+    return {
+        "queries": _telegram_search_queries(search.get("queries")),
+        "discover_channels": bool(search.get("discover_channels", True)),
+        "channels_limit": _safe_int(
+            search.get("channels_limit"),
+            settings.telegram_channel_discovery_limit,
+            minimum=1,
+            maximum=100,
+        ),
+        "posts_limit_per_query": _safe_int(
+            search.get("posts_limit_per_query"),
+            settings.telegram_search_limit_per_query,
+            minimum=1,
+            maximum=200,
+        ),
+        "days_back": _safe_int(
+            search.get("days_back"),
+            settings.telegram_search_days_back,
+            minimum=1,
+            maximum=365,
+        ),
+        "whitelist_enabled": bool(search.get("whitelist_enabled", False)),
+        "allowed_channels": _telegram_channel_list(search.get("allowed_channels")),
+    }
+
+
+def _passes_telegram_filters(text: str, source: ParserSource, region_context: str | None = None) -> bool:
     normalized = text.lower()
+    region_normalized = (region_context or text).lower()
     extra_config = source.extra_config if isinstance(source.extra_config, dict) else {}
     raw_filters = extra_config.get("telegram_filters")
     filters = raw_filters if isinstance(raw_filters, dict) else {}
     commercial_only = bool(filters.get("commercial_only", True))
     udmurtia_only = bool(filters.get("udmurtia_only", True))
+    require_transaction_keyword = bool(filters.get("require_transaction_keyword", True))
+    require_real_estate_keyword = bool(filters.get("require_real_estate_keyword", True))
     commercial_keywords = _telegram_filter_keywords(
         filters.get("commercial_keywords"), DEFAULT_TELEGRAM_COMMERCIAL_KEYWORDS
     )
+    transaction_keywords = _telegram_filter_keywords(
+        filters.get("transaction_keywords"), DEFAULT_TELEGRAM_TRANSACTION_KEYWORDS
+    )
+    real_estate_keywords = _telegram_filter_keywords(
+        filters.get("real_estate_keywords"), DEFAULT_TELEGRAM_REAL_ESTATE_KEYWORDS
+    )
+    exclude_keywords = _telegram_filter_keywords(
+        filters.get("exclude_keywords"), DEFAULT_TELEGRAM_EXCLUDE_KEYWORDS
+    )
     udmurtia_keywords = _telegram_filter_keywords(filters.get("region_keywords"), DEFAULT_TELEGRAM_UDMURTIA_KEYWORDS)
 
+    if any(keyword in normalized for keyword in exclude_keywords):
+        return False
     if commercial_only and not any(keyword in normalized for keyword in commercial_keywords):
         return False
-    if udmurtia_only and not any(keyword in normalized for keyword in udmurtia_keywords):
+    if commercial_only and require_real_estate_keyword and not any(keyword in normalized for keyword in real_estate_keywords):
+        return False
+    if commercial_only and require_transaction_keyword and not any(keyword in normalized for keyword in transaction_keywords):
+        return False
+    if udmurtia_only and not any(keyword in region_normalized for keyword in udmurtia_keywords):
         return False
     return True
+
+
+def _build_telegram_item(
+    source: ParserSource,
+    *,
+    text: str,
+    message_url: str,
+    source_external_id: str,
+    channel_name: str,
+    payload: dict[str, Any],
+) -> ParserIngestItem:
+    return ParserIngestItem(
+        source_channel=SourceChannel.telegram,
+        source_external_id=source_external_id,
+        raw_url=message_url,
+        telegram_post_url=message_url,
+        title=text[:120],
+        description=text[:4000],
+        normalized_address=_extract_first(ADDRESS_RE, text),
+        city=source.city,
+        region_code=source.region_code,
+        area_sqm=_extract_area(text),
+        price_rub=_extract_price(text),
+        contact_name=channel_name,
+        contact_phone=_extract_first(PHONE_RE, text),
+        contact_email=_extract_first(EMAIL_RE, text),
+        intent=_detect_intent(text),
+        payload=payload,
+    )
 
 
 def _collect_telegram_items(source: ParserSource) -> list[ParserIngestItem]:
@@ -421,28 +605,275 @@ def _collect_telegram_items(source: ParserSource) -> list[ParserIngestItem]:
             continue
         if not _passes_telegram_filters(text, source):
             continue
-        title = text[:120]
         items.append(
-            ParserIngestItem(
-                source_channel=SourceChannel.telegram,
+            _build_telegram_item(
+                source,
+                text=text,
+                message_url=message_url,
                 source_external_id=external_id or _extract_external_id(message_url, text),
-                raw_url=message_url,
-                telegram_post_url=message_url,
-                title=title,
-                description=text[:4000],
-                normalized_address=_extract_first(ADDRESS_RE, text),
-                city=source.city,
-                region_code=source.region_code,
-                area_sqm=_extract_area(text),
-                price_rub=_extract_price(text),
-                contact_name=source.name,
-                contact_phone=_extract_first(PHONE_RE, text),
-                contact_email=_extract_first(EMAIL_RE, text),
-                intent=_detect_intent(text),
+                channel_name=source.name,
                 payload={"source_name": source.name, "source_url": source_url, "parser": "telegram_channel"},
             )
         )
     return items
+
+
+async def _telegram_message_permalink(message: Any) -> tuple[str | None, str]:
+    chat = getattr(message, "chat", None)
+    if chat is None:
+        try:
+            chat = await message.get_chat()
+        except Exception:
+            chat = None
+    username = getattr(chat, "username", None) if chat else None
+    if not username:
+        return None, ""
+    message_id = getattr(message, "id", None)
+    if not message_id:
+        return None, ""
+    return f"https://t.me/{username}/{message_id}", f"{username}/{message_id}"
+
+
+def _require_telegram_api_credentials() -> tuple[int, str, str]:
+    api_id_raw = settings.telegram_api_id.strip()
+    api_hash = settings.telegram_api_hash.strip()
+    session_string = settings.telegram_session_string.strip()
+    if not api_id_raw or not api_hash:
+        raise ValueError(
+            "Telegram API credentials are missing. Set TELEGRAM_API_ID and TELEGRAM_API_HASH in .env."
+        )
+    if not session_string:
+        raise ValueError(
+            "Telegram session is missing. Set TELEGRAM_SESSION_STRING (StringSession from authorized account)."
+        )
+    try:
+        api_id = int(api_id_raw)
+    except ValueError as exc:
+        raise ValueError("TELEGRAM_API_ID must be an integer.") from exc
+    return api_id, api_hash, session_string
+
+
+def _persist_telegram_channel_catalog(
+    source: ParserSource,
+    discovered_channels: dict[str, dict[str, Any]],
+    search_config: dict[str, Any],
+) -> None:
+    extra_config = dict(source.extra_config or {})
+    raw_search = extra_config.get("telegram_search")
+    search = dict(raw_search) if isinstance(raw_search, dict) else {}
+
+    existing_rows = search.get("discovered_channels")
+    existing: dict[str, dict[str, Any]] = {}
+    if isinstance(existing_rows, list):
+        for row in existing_rows:
+            if not isinstance(row, dict):
+                continue
+            username = _normalize_telegram_channel(row.get("username"))
+            if not username:
+                continue
+            existing[username] = {
+                "username": username,
+                "title": _normalize_text(str(row.get("title") or f"@{username}")) or f"@{username}",
+                "first_seen_at": row.get("first_seen_at"),
+                "last_seen_at": row.get("last_seen_at"),
+                "matched_queries": row.get("matched_queries") if isinstance(row.get("matched_queries"), list) else [],
+            }
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    for username, payload in discovered_channels.items():
+        title = _normalize_text(str(payload.get("title") or f"@{username}")) or f"@{username}"
+        queries = payload.get("queries") if isinstance(payload.get("queries"), set) else set()
+        row = existing.get(username) or {
+            "username": username,
+            "title": title,
+            "first_seen_at": now_iso,
+            "last_seen_at": now_iso,
+            "matched_queries": [],
+        }
+        row["title"] = title
+        row["last_seen_at"] = now_iso
+        historical_queries = {
+            _normalize_text(str(item))
+            for item in (row.get("matched_queries") if isinstance(row.get("matched_queries"), list) else [])
+            if _normalize_text(str(item))
+        }
+        historical_queries.update({_normalize_text(str(item)) for item in queries if _normalize_text(str(item))})
+        row["matched_queries"] = sorted(historical_queries)[:25]
+        existing[username] = row
+
+    search["discovered_channels"] = [existing[key] for key in sorted(existing.keys())][:500]
+    search["whitelist_enabled"] = bool(search_config.get("whitelist_enabled", False))
+    search["allowed_channels"] = list(_telegram_channel_list(search.get("allowed_channels")))
+    extra_config["telegram_search"] = search
+    source.extra_config = extra_config
+
+
+async def _collect_telegram_api_search_items_async(source: ParserSource) -> list[ParserIngestItem]:
+    api_id, api_hash, session_string = _require_telegram_api_credentials()
+    try:
+        from telethon import TelegramClient  # type: ignore[import-not-found]
+        from telethon.sessions import StringSession  # type: ignore[import-not-found]
+        from telethon.tl.functions.contacts import SearchRequest  # type: ignore[import-not-found]
+    except Exception as exc:
+        raise ValueError(
+            "Telethon dependency is not installed. Reinstall dependencies: pip install -e .[dev]"
+        ) from exc
+
+    search_config = _telegram_search_config(source)
+    query_list: tuple[str, ...] = search_config["queries"]
+    max_items = min(source.max_items_per_run, settings.parser_max_items_per_source)
+    min_message_date = datetime.now(timezone.utc) - timedelta(days=int(search_config["days_back"]))
+
+    discovered_channels: dict[str, dict[str, Any]] = {}
+    items: list[ParserIngestItem] = []
+    seen_message_ids: set[str] = set()
+    whitelist_enabled = bool(search_config.get("whitelist_enabled", False))
+    allowed_channels = {channel for channel in search_config.get("allowed_channels", ())}
+
+    client = TelegramClient(
+        session=StringSession(session_string),
+        api_id=api_id,
+        api_hash=api_hash,
+        receive_updates=False,
+    )
+    await client.connect()
+    try:
+        if not await client.is_user_authorized():
+            raise ValueError(
+                "Telegram session is not authorized. Recreate TELEGRAM_SESSION_STRING from a logged-in account."
+            )
+
+        def remember_channel(username_raw: object, title_raw: object, query: str | None = None) -> str:
+            username = _normalize_telegram_channel(username_raw)
+            if not username:
+                return ""
+            title = _normalize_text(str(title_raw or f"@{username}")) or f"@{username}"
+            payload = discovered_channels.get(username)
+            if not isinstance(payload, dict):
+                payload = {"title": title, "queries": set()}
+            payload["title"] = title
+            queries = payload.get("queries")
+            if not isinstance(queries, set):
+                queries = set()
+            if query:
+                queries.add(_normalize_text(query))
+            payload["queries"] = queries
+            discovered_channels[username] = payload
+            return username
+
+        async def consume_message(message: Any, query: str, channel_hint: str | None = None) -> None:
+            if len(items) >= max_items:
+                return
+            text = _normalize_text(getattr(message, "message", "") or "")
+            if not text:
+                return
+            message_date = getattr(message, "date", None)
+            if message_date:
+                if message_date.tzinfo is None:
+                    message_date = message_date.replace(tzinfo=timezone.utc)
+                if message_date < min_message_date:
+                    return
+
+            message_url, external_id = await _telegram_message_permalink(message)
+            if not message_url or not external_id:
+                return
+            if external_id in seen_message_ids:
+                return
+
+            username = remember_channel(external_id.split("/", maxsplit=1)[0], channel_hint, query)
+            if not username:
+                return
+            if whitelist_enabled and username not in allowed_channels:
+                return
+            payload = discovered_channels.get(username) or {}
+            channel_title = _normalize_text(str(payload.get("title") or channel_hint or f"@{username}")) or f"@{username}"
+            commercial_context = _normalize_text(" ".join([text, username, channel_title]))
+            region_context = _normalize_text(" ".join([commercial_context, query]))
+            if not _passes_telegram_filters(commercial_context, source, region_context=region_context):
+                return
+
+            seen_message_ids.add(external_id)
+            items.append(
+                _build_telegram_item(
+                    source,
+                    text=text,
+                    message_url=message_url,
+                    source_external_id=external_id,
+                    channel_name=f"@{username}",
+                    payload={
+                        "source_name": source.name,
+                        "source_url": source.source_url,
+                        "parser": "telegram_api_search",
+                        "query": query,
+                        "channel": username,
+                        "channel_title": channel_title,
+                    },
+                )
+            )
+
+        if bool(search_config["discover_channels"]):
+            for query in query_list:
+                search_result = await client(SearchRequest(q=query, limit=int(search_config["channels_limit"])))
+                for chat in getattr(search_result, "chats", []) or []:
+                    username = getattr(chat, "username", None)
+                    if not username:
+                        continue
+                    if not bool(getattr(chat, "broadcast", False) or getattr(chat, "megagroup", False)):
+                        continue
+                    title = _normalize_text(str(getattr(chat, "title", "") or f"@{username}"))
+                    remember_channel(username, title, query)
+
+        for query in query_list:
+            async for message in client.iter_messages(
+                entity=None,
+                search=query,
+                limit=int(search_config["posts_limit_per_query"]),
+            ):
+                if len(items) >= max_items:
+                    break
+                await consume_message(message, query)
+            if len(items) >= max_items:
+                break
+
+        # Secondary pass: scan discovered channels directly by query, then recent history.
+        per_channel_limit = int(search_config["posts_limit_per_query"])
+        for username, channel_payload in discovered_channels.items():
+            if len(items) >= max_items:
+                break
+            channel_title = _normalize_text(str(channel_payload.get("title") or f"@{username}")) or f"@{username}"
+            if whitelist_enabled and username not in allowed_channels:
+                continue
+            channel_had_hits = False
+            for query in query_list:
+                try:
+                    async for message in client.iter_messages(
+                        entity=username,
+                        search=query,
+                        limit=per_channel_limit,
+                    ):
+                        before = len(items)
+                        await consume_message(message, query, channel_hint=channel_title)
+                        if len(items) > before:
+                            channel_had_hits = True
+                        if len(items) >= max_items:
+                            break
+                except Exception:
+                    continue
+                if len(items) >= max_items:
+                    break
+
+            if len(items) >= max_items:
+                break
+            if not channel_had_hits:
+                continue
+        _persist_telegram_channel_catalog(source, discovered_channels, search_config)
+        return items
+    finally:
+        await client.disconnect()
+
+
+def _collect_telegram_api_search_items(source: ParserSource) -> list[ParserIngestItem]:
+    return asyncio.run(_collect_telegram_api_search_items_async(source))
 
 
 def _collect_rss_items(source: ParserSource) -> list[ParserIngestItem]:
@@ -543,6 +974,8 @@ def collect_items_for_source(source: ParserSource) -> list[ParserIngestItem]:
     if mode == "json_api":
         return _collect_json_api_items(source)
     if source.source_channel == SourceChannel.telegram:
+        if mode == "telegram_api_search":
+            return _collect_telegram_api_search_items(source)
         return _collect_telegram_items(source)
     if source.source_channel in (SourceChannel.avito, SourceChannel.cian, SourceChannel.domclick):
         return _collect_marketplace_items(source)

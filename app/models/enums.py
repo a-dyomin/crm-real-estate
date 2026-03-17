@@ -40,6 +40,16 @@ class ContactIntent(str, Enum):
 
 
 class LeadStatus(str, Enum):
+    new_lead = "new_lead"
+    qualification = "qualification"
+    no_answer = "no_answer"
+    call_center_tasks = "call_center_tasks"
+    sent_to_commission = "sent_to_commission"
+    final_no_answer = "final_no_answer"
+    deferred_demand = "deferred_demand"
+    poor_quality_lead = "poor_quality_lead"
+    high_quality_lead = "high_quality_lead"
+    # Legacy statuses kept for backward compatibility with historical data.
     new = "new"
     qualified = "qualified"
     disqualified = "disqualified"

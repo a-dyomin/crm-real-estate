@@ -252,7 +252,7 @@ def call_to_lead(call_id: int, current_user: User = Depends(get_current_user), d
         contact_name=call.from_number,
         contact_phone=call.from_number,
         intent=ContactIntent.unknown,
-        status=LeadStatus.new,
+        status=LeadStatus.new_lead,
         source_channel=SourceChannel.manual,
         source_record_id=f"call:{call.id}",
     )

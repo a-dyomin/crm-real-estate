@@ -148,6 +148,11 @@ body {
   margin-bottom: 10px;
 }
 
+.tab-actions {
+  display: flex;
+  gap: 8px;
+}
+
 .kanban {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
@@ -241,6 +246,59 @@ table {
   border: 1px solid var(--border);
   border-radius: 8px;
   overflow: hidden;
+}
+
+.telegram-catalog {
+  display: grid;
+  gap: 10px;
+  margin: 10px 0 14px;
+}
+
+.telegram-source-card {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fff;
+  padding: 10px;
+}
+
+.telegram-source-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.telegram-source-head strong {
+  font-size: 14px;
+}
+
+.telegram-inline-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.telegram-channels {
+  display: grid;
+  gap: 6px;
+  max-height: 320px;
+  overflow: auto;
+}
+
+.telegram-channel-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px;
+}
+
+.telegram-channel-main {
+  display: grid;
+  gap: 2px;
 }
 
 th,

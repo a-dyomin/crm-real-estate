@@ -24,9 +24,19 @@ Production-oriented CRM baseline for a regional commercial real estate agency.
 - SQLite (default for pilot)
 - Vanilla JS + Jinja templates
 
+## Clone Repository
+
+```bash
+git clone https://github.com/a-dyomin/crm-real-estate.git
+cd crm-real-estate
+```
+
 ## Quick Start (Linux/macOS, deploy-friendly)
 
 ```bash
+# IMPORTANT: run commands from repository root (where pyproject.toml is located)
+pwd
+ls pyproject.toml
 python3 -m venv .venv
 .venv/bin/python -m pip install --upgrade pip
 .venv/bin/python -m pip install -e .[dev]
@@ -37,11 +47,31 @@ cp .env.example .env
 ## Quick Start (Windows PowerShell)
 
 ```powershell
+Set-Location .\crm-real-estate
+Test-Path .\pyproject.toml
 python -m venv .venv
 .\.venv\Scripts\python -m pip install --upgrade pip
 .\.venv\Scripts\python -m pip install -e .[dev]
 Copy-Item .env.example .env
 .\.venv\Scripts\python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
+
+## Common Deploy Error
+
+If you see:
+
+```text
+ERROR: file:///home/user does not appear to be a Python project: neither 'setup.py' nor 'pyproject.toml' found.
+```
+
+You are running `pip install -e .[dev]` from the wrong folder.
+
+Fix:
+
+```bash
+cd /home/user/crm-real-estate
+ls pyproject.toml
+.venv/bin/python -m pip install -e .[dev]
 ```
 
 - App: `http://127.0.0.1:8000/`
@@ -65,6 +95,16 @@ Parser automation:
 - `PARSER_REQUEST_TIMEOUT_SEC=25`
 - `PARSER_MAX_ITEMS_PER_SOURCE=20`
 - `PARSER_DETAIL_FETCH_LIMIT=10`
+- `PARSER_MIRROR_FALLBACK_ENABLED=true`
+- `PARSER_MIRROR_BASE_URL=https://r.jina.ai/http://`
+
+Telegram API search mode (optional, for hashtag/channel discovery):
+- `TELEGRAM_API_ID=<telegram-api-id>`
+- `TELEGRAM_API_HASH=<telegram-api-hash>`
+- `TELEGRAM_SESSION_STRING=<telethon-string-session>`
+- `TELEGRAM_CHANNEL_DISCOVERY_LIMIT=20`
+- `TELEGRAM_SEARCH_LIMIT_PER_QUERY=30`
+- `TELEGRAM_SEARCH_DAYS_BACK=30`
 
 Telephony and transcription:
 - `MEDIA_DIR=./media`
@@ -83,6 +123,65 @@ Telephony and transcription:
    - deduplicates them via existing dedup pipeline,
    - writes run history with counts and errors.
 4. You can force an immediate run with `Run parser now` button or API.
+
+### Telegram: Search by Hashtags and Discover Channels
+
+For `source_channel=telegram`, set `mode=telegram_api_search` and pass JSON in `extra_config`:
+
+```json
+{
+  "mode": "telegram_api_search",
+  "telegram_search": {
+    "queries": [
+      "#коммерческаянедвижимость",
+      "#недвижимостьижевск",
+      "коммерческая недвижимость удмуртия",
+      "аренда офис ижевск"
+    ],
+    "discover_channels": true,
+    "channels_limit": 20,
+    "posts_limit_per_query": 30,
+    "days_back": 30,
+    "whitelist_enabled": false,
+    "allowed_channels": []
+  },
+  "telegram_filters": {
+    "commercial_only": true,
+    "udmurtia_only": false,
+    "require_transaction_keyword": true,
+    "require_real_estate_keyword": true
+  }
+}
+```
+
+Notes:
+- `TELEGRAM_API_ID` only is not enough; Telegram also requires `TELEGRAM_API_HASH`.
+- Without `TELEGRAM_SESSION_STRING`, global search will not run.
+- Discovered Telegram channels are auto-saved to `telegram_search.discovered_channels`.
+- Enable `whitelist_enabled=true` and fill `allowed_channels` to parse only selected channels.
+
+Generate `TELEGRAM_SESSION_STRING` once:
+
+```bash
+.venv/bin/python - <<'PY'
+from telethon.sync import TelegramClient
+from telethon.sessions import StringSession
+
+api_id = int(input("TELEGRAM_API_ID: ").strip())
+api_hash = input("TELEGRAM_API_HASH: ").strip()
+
+with TelegramClient(StringSession(), api_id, api_hash) as client:
+    print("SESSION_STRING=" + client.session.save())
+PY
+```
+
+Or run helper script:
+
+```bash
+.venv/bin/python scripts/generate_telegram_session.py
+```
+
+If `TELEGRAM_API_ID` and `TELEGRAM_API_HASH` are already in `.env`, the script will reuse them.
 
 ## API Endpoints
 
