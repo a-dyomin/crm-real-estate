@@ -1,3 +1,4 @@
+import copy
 from datetime import datetime
 
 from sqlalchemy import Select, distinct, select
@@ -14,6 +15,27 @@ from app.services.parser_ingest import ingest_parser_item
 def _truncate_error(error: Exception) -> str:
     message = f"{type(error).__name__}: {error}"
     return message[:1500]
+
+
+def _snapshot_source(source: ParserSource) -> ParserSource:
+    return ParserSource(
+        id=source.id,
+        agency_id=source.agency_id,
+        name=source.name,
+        source_channel=source.source_channel,
+        source_url=source.source_url,
+        city=source.city,
+        region_code=source.region_code,
+        is_active=source.is_active,
+        poll_minutes=source.poll_minutes,
+        max_items_per_run=source.max_items_per_run,
+        extra_config=copy.deepcopy(source.extra_config) if source.extra_config else None,
+        last_run_at=source.last_run_at,
+        last_success_at=source.last_success_at,
+        last_error=source.last_error,
+        created_at=source.created_at,
+        updated_at=source.updated_at,
+    )
 
 
 def run_parser_for_agency(db: Session, agency_id: int, trigger: str = "scheduled") -> ParserRun:
@@ -42,44 +64,85 @@ def run_parser_for_agency(db: Session, agency_id: int, trigger: str = "scheduled
     )
     db.add(run)
     db.flush()
+    run_id = run.id
+    db.commit()
 
     if not sources:
-        run.status = ParserRunStatus.completed
-        run.finished_at = datetime.utcnow()
-        db.flush()
-        return run
+        run = db.get(ParserRun, run_id)
+        if run:
+            run.status = ParserRunStatus.completed
+            run.finished_at = datetime.utcnow()
+            db.commit()
+            db.refresh(run)
+            return run
+        return ParserRun(
+            agency_id=agency_id,
+            status=ParserRunStatus.completed,
+            trigger=trigger,
+            source_count=0,
+            started_at=datetime.utcnow(),
+            finished_at=datetime.utcnow(),
+        )
+
+    counters = {
+        "fetched": 0,
+        "inserted": 0,
+        "duplicate": 0,
+        "possible_duplicate": 0,
+        "errors": 0,
+    }
 
     for source in sources:
-        source.last_run_at = datetime.utcnow()
+        source_id = source.id
+        snapshot = _snapshot_source(source)
+        source_row = db.get(ParserSource, source_id)
+        if source_row:
+            source_row.last_run_at = datetime.utcnow()
+            db.commit()
         try:
-            items: list[ParserIngestItem] = collect_items_for_source(source)
-            run.fetched_count += len(items)
+            items: list[ParserIngestItem] = collect_items_for_source(snapshot)
+            counters["fetched"] += len(items)
             for item in items:
                 result = ingest_parser_item(db=db, agency_id=agency_id, payload=item)
                 if result.status == ParserResultStatus.duplicate:
-                    run.duplicate_count += 1
+                    counters["duplicate"] += 1
                 elif result.status == ParserResultStatus.possible_duplicate:
-                    run.possible_duplicate_count += 1
-                    run.inserted_count += 1
+                    counters["possible_duplicate"] += 1
+                    counters["inserted"] += 1
                 else:
-                    run.inserted_count += 1
-            source.last_success_at = datetime.utcnow()
-            source.last_error = None
+                    counters["inserted"] += 1
+            if source_row:
+                source_row.last_success_at = datetime.utcnow()
+                source_row.last_error = None
         except Exception as exc:
-            run.error_count += 1
-            source.last_error = _truncate_error(exc)
+            counters["errors"] += 1
+            if source_row:
+                source_row.last_error = _truncate_error(exc)
 
-    run.finished_at = datetime.utcnow()
-    if run.error_count == 0:
-        run.status = ParserRunStatus.completed
-    elif run.error_count < run.source_count:
-        run.status = ParserRunStatus.completed_with_errors
+        run_row = db.get(ParserRun, run_id)
+        if run_row:
+            run_row.fetched_count = counters["fetched"]
+            run_row.inserted_count = counters["inserted"]
+            run_row.duplicate_count = counters["duplicate"]
+            run_row.possible_duplicate_count = counters["possible_duplicate"]
+            run_row.error_count = counters["errors"]
+        db.commit()
+
+    run_row = db.get(ParserRun, run_id)
+    if not run_row:
+        return run
+    run_row.finished_at = datetime.utcnow()
+    if counters["errors"] == 0:
+        run_row.status = ParserRunStatus.completed
+    elif counters["errors"] < run_row.source_count:
+        run_row.status = ParserRunStatus.completed_with_errors
     else:
-        run.status = ParserRunStatus.failed
-        run.error_message = "All sources failed during parser run."
+        run_row.status = ParserRunStatus.failed
+        run_row.error_message = "All sources failed during parser run."
 
-    db.flush()
-    return run
+    db.commit()
+    db.refresh(run_row)
+    return run_row
 
 
 def run_parser_for_all_agencies(db: Session, trigger: str = "scheduled") -> list[ParserRun]:

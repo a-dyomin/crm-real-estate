@@ -3,14 +3,17 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>CRE CRM</title>
+    <title>FORMA CRM</title>
     <link rel="stylesheet" href="/static/styles.css" />
   </head>
   <body data-api-prefix="{{ api_prefix }}">
     <header class="topbar">
-      <div>
-        <h1>CRE CRM</h1>
-        <p>Phase 2/3: канбан, колл-центр, IP-телефония, транскрибация</p>
+      <div class="brand">
+        <img class="brand-logo" src="/static/forma-icon.svg" alt="FORMA" />
+        <div class="brand-text">
+          <h1>FORMA</h1>
+          <p>Структура, контроль и масштабирование продаж</p>
+        </div>
       </div>
       <div class="userbox">
         <div id="currentUserInfo"></div>
@@ -31,8 +34,11 @@
       <main class="content">
         <section class="tab active" id="tab-home">
           <h2>Главная</h2>
-          <div class="cards" id="dashboardCards"></div>
-          <div class="split">
+          <div class="home-section">
+            <h3>Операционная панель</h3>
+            <div class="cards" id="dashboardCards"></div>
+          </div>
+          <div class="home-section split">
             <div class="panel">
               <h3>Лиды по статусам</h3>
               <div id="leadStatusSummary" class="status-list"></div>
@@ -65,132 +71,23 @@
 
         <section class="tab" id="tab-parser">
           <h2>Parser Hub</h2>
-          <div class="split">
-            <div class="panel">
-              <h3>Автоисточники (каждые 24 часа)</h3>
-              <form id="sourceForm" class="grid single">
-                <label>Название источника
-                  <input name="name" required minlength="2" />
-                </label>
-                <label>Канал
-                  <select name="source_channel" required>
-                    <option value="avito">avito</option>
-                    <option value="cian">cian</option>
-                    <option value="domclick">domclick</option>
-                    <option value="telegram">telegram</option>
-                  </select>
-                </label>
-                <label>URL источника
-                  <input name="source_url" required placeholder="https://..." />
-                </label>
-                <label>Режим
-                  <select name="mode">
-                    <option value="html">html</option>
-                    <option value="avito_official_api">avito_official_api</option>
-                    <option value="telegram_api_search">telegram_api_search</option>
-                    <option value="rss">rss</option>
-                    <option value="json_api">json_api</option>
-                  </select>
-                </label>
-                <label>Город
-                  <input name="city" value="Ижевск" />
-                </label>
-                <label>Код региона
-                  <input name="region_code" value="RU-UDM" />
-                </label>
-                <label>Интервал (минуты)
-                  <input name="poll_minutes" type="number" min="60" max="10080" value="1440" />
-                </label>
-                <label>Макс. объявлений за запуск
-                  <input name="max_items_per_run" type="number" min="1" max="10000" value="10000" />
-                </label>
-                <label>Доп. JSON (опционально)
-                  <input name="extra_config_json" placeholder='{"telegram_search":{"queries":["#коммерческаянедвижимость","аренда офис ижевск"],"whitelist_enabled":false},"telegram_filters":{"commercial_only":true,"udmurtia_only":false}}' />
-                </label>
-                <button type="submit">Добавить источник</button>
-              </form>
-              <button id="runParserNowBtn" class="secondary">Запустить парсер сейчас</button>
-            </div>
-            <div class="panel">
-              <h3>Последние запуски парсера</h3>
-              <table>
-                <thead>
-                  <tr>
-                    <th>ID</th>
-                    <th>Статус</th>
-                    <th>Триггер</th>
-                    <th>Получено</th>
-                    <th>Добавлено</th>
-                    <th>Ошибки</th>
-                    <th>Старт</th>
-                  </tr>
-                </thead>
-                <tbody id="parserRunRows"></tbody>
-              </table>
-            </div>
+          <div class="panel">
+            <h3>Последние запуски парсера (автоматически каждые 24 часа)</h3>
+            <table>
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Статус</th>
+                  <th>Триггер</th>
+                  <th>Получено</th>
+                  <th>Добавлено</th>
+                  <th>Ошибки</th>
+                  <th>Старт</th>
+                </tr>
+              </thead>
+              <tbody id="parserRunRows"></tbody>
+            </table>
           </div>
-
-          <h3>Настроенные источники</h3>
-          <table>
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>Название</th>
-                <th>Канал</th>
-                <th>URL</th>
-                <th>Интервал</th>
-                <th>Последний запуск</th>
-                <th>Статус</th>
-                <th>Действия</th>
-              </tr>
-            </thead>
-            <tbody id="sourceRows"></tbody>
-          </table>
-
-          <h3>Telegram Channel Catalog / Whitelist</h3>
-          <div id="telegramCatalog" class="telegram-catalog muted">No discovered channels yet.</div>
-
-          <h3>Ручное добавление</h3>
-          <form id="ingestForm" class="grid">
-            <label>Канал
-              <select name="source_channel" required>
-                <option value="avito">avito</option>
-                <option value="cian">cian</option>
-                <option value="domclick">domclick</option>
-                <option value="telegram">telegram</option>
-              </select>
-            </label>
-            <label>Заголовок
-              <input name="title" required minlength="3" />
-            </label>
-            <label>Адрес
-              <input name="normalized_address" />
-            </label>
-            <label>Город
-              <input name="city" value="Ижевск" />
-            </label>
-            <label>Площадь (м2)
-              <input name="area_sqm" type="number" min="0" step="0.1" />
-            </label>
-            <label>Цена (руб)
-              <input name="price_rub" type="number" min="0" step="1" />
-            </label>
-            <label>Телефон
-              <input name="contact_phone" />
-            </label>
-            <label>Контакт
-              <input name="contact_name" />
-            </label>
-            <label>Интент
-              <select name="intent">
-                <option value="seller">seller</option>
-                <option value="tenant">tenant</option>
-                <option value="investor">investor</option>
-                <option value="unknown">unknown</option>
-              </select>
-            </label>
-            <button type="submit">Добавить в Parser Hub</button>
-          </form>
 
           <div class="tab-title parser-results-head">
             <h3>Результаты парсера</h3>
@@ -198,7 +95,7 @@
               <input
                 id="parserSearchInput"
                 name="q"
-                placeholder="Поиск: объект, контакт, телефон, URL"
+                placeholder="Поиск: объект, адрес, контакт, телефон, URL"
                 maxlength="200"
               />
               <button type="submit" class="secondary">Поиск</button>
@@ -218,7 +115,10 @@
                 <th>ID</th>
                 <th>Канал</th>
                 <th>Статус</th>
+                <th>Тип</th>
+                <th>Фото</th>
                 <th>Объект</th>
+                <th>Адрес</th>
                 <th>Post URL</th>
                 <th>Контакт</th>
                 <th>Действия</th>
@@ -335,6 +235,108 @@
           </table>
         </section>
       </main>
+    </div>
+
+    <div id="leadCardModal" class="modal">
+      <div class="modal-backdrop" data-action="close"></div>
+      <div class="modal-content lead-card">
+        <div class="lead-card-header">
+          <div>
+            <h3>Карточка лида <span id="leadCardTitle"></span></h3>
+            <div class="muted" id="leadCardMeta"></div>
+          </div>
+          <button id="leadCardCloseBtn" class="secondary">Закрыть</button>
+        </div>
+        <div class="lead-card-tabs">
+          <button class="lead-tab-btn active" data-lead-tab="params">Основные параметры</button>
+          <button class="lead-tab-btn" data-lead-tab="history">История изменений</button>
+        </div>
+
+        <div class="lead-card-body">
+          <div class="lead-card-pane active" id="leadTabParams">
+            <div class="lead-main-grid">
+              <div class="lead-section">
+                <h4>О лиде</h4>
+                <label>Название лида
+                  <input id="leadTitleInput" required />
+                </label>
+                <label>Номер телефона
+                  <input id="leadPhoneInput" />
+                </label>
+                <label>Источник
+                  <select id="leadSourceSelect"></select>
+                </label>
+              </div>
+
+              <div class="lead-section">
+                <h4>Потребность</h4>
+                <label>Потребность клиента
+                  <select id="leadNeedSelect"></select>
+                </label>
+                <label>Район поиска
+                  <select id="leadDistrictSelect"></select>
+                </label>
+                <label>Адрес объекта
+                  <select id="leadAddressSelect"></select>
+                </label>
+                <label>Тип помещения
+                  <select id="leadPropertyTypeSelect"></select>
+                </label>
+                <label>Искомая площадь (диапазон)
+                  <select id="leadAreaRangeSelect"></select>
+                </label>
+                <label>Вид деятельности
+                  <select id="leadActivitySelect"></select>
+                </label>
+                <label>Срочность поиска
+                  <select id="leadUrgencySelect"></select>
+                </label>
+              </div>
+
+              <div class="lead-section span-2">
+                <h4>Дополнительно</h4>
+                <label>Дополнительно об источнике
+                  <textarea id="leadSourceDetailsInput" rows="3"></textarea>
+                </label>
+                <label>Ответственный
+                  <select id="leadOwnerSelect"></select>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <div class="lead-card-pane" id="leadTabHistory">
+            <div class="lead-history">
+              <div class="lead-history-header">
+                <h4>История изменений</h4>
+              </div>
+              <table class="lead-history-table">
+                <thead>
+                  <tr>
+                    <th>Тип</th>
+                    <th>Автор</th>
+                    <th>Дата</th>
+                    <th>Описание</th>
+                  </tr>
+                </thead>
+                <tbody id="leadEventTableBody"></tbody>
+              </table>
+              <form id="leadCommentForm" class="lead-comment-form">
+                <label>Комментарий
+                  <textarea id="leadCommentInput" rows="3" placeholder="Комментарий для ленты истории"></textarea>
+                </label>
+                <button type="submit" class="secondary">Добавить комментарий</button>
+              </form>
+            </div>
+          </div>
+        </div>
+
+        <div class="lead-card-actions">
+          <button id="leadCardSaveBtn">Сохранить</button>
+          <button id="leadCardCancelBtn" class="secondary">Отмена</button>
+          <button id="leadCardCloseBtnBottom" class="secondary">Закрыть</button>
+        </div>
+      </div>
     </div>
 
     <script src="/static/app.js"></script>

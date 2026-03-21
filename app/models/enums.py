@@ -29,6 +29,8 @@ class SourceChannel(str, Enum):
     cian = "cian"
     domclick = "domclick"
     telegram = "telegram"
+    yandex = "yandex"
+    bankrupt = "bankrupt"
     manual = "manual"
 
 

@@ -1,4 +1,4 @@
-const apiPrefix = document.body.dataset.apiPrefix;
+﻿const apiPrefix = document.body.dataset.apiPrefix;
 const token = localStorage.getItem("cre_token");
 
 const leadStages = [
@@ -13,6 +13,124 @@ const leadStages = [
   ["high_quality_lead", "Качественный лид"],
 ];
 
+const leadSourceOptions = [
+  "Не выбрано",
+  "Звонок",
+  "Telegram",
+  "Avito",
+  "Avito – ДЕПО Консалтинг",
+  "WhatsApp",
+  "Рекомендация",
+  "Веб-сайт",
+  "Существующий клиент",
+  "Avito – Avito Бизнес-центр Короленко",
+  "Актуализация базы",
+  "Avito – Avito ПКЦ Гагаринский",
+  "Avito – Avito Депо",
+  "Avito – Avito База Южная",
+  "Avito – Avito Строительная База Южная",
+  "Avito – Avito Дом купца Оглоблина",
+  "Avito – Avito Энергия",
+  "Робот",
+  "ОКВЭД",
+  "Поиск объекта",
+  "ГЦК (генерация целевых клиентов)",
+  "Чат C+",
+  "Мониторинг арендаторов",
+];
+
+const leadNeedOptions = [
+  "Не выбрано",
+  "Аренда",
+  "Субаренда",
+  "Купить помещение",
+  "Продать помещение",
+  "Продать ЗУ",
+  "Купить ЗУ",
+  "Инвестор",
+];
+
+const leadDistrictOptions = [
+  "Не выбрано",
+  "Устиновский",
+  "Первомайский",
+  "Индустриальный",
+  "Ленинский",
+  "Октябрьский",
+  "Завьяловский",
+  "Любой",
+];
+
+const leadAddressOptions = [
+  "ул. Буммашевская, 5Б (Депо)",
+  "ул. Гагарина, 1 (ПКЦ Гагаринский)",
+  "ул. Ленина, 46 (Ленина, 46)",
+  "ул. Максима Горького, 86 (ИП Агашин Д.В.)",
+  "ул. Максима Горького, 88 (ИП Агашин Д.В.)",
+  "ул. Максима Горького, 63А (ИП Гимранов А.Р.)",
+  "ул. Маяковского, 41 (СБЮ)",
+  "ул. Маяковского, 43 (БЮ)",
+  "ул. Буммашевская, 53 (Энергия)",
+  "ул. 8 Марта, 87",
+  "ул. Милиционная, 4",
+  "ул. К. Маркса, 188/1",
+  "Сторонние адреса",
+];
+
+const leadPropertyTypeOptions = [
+  "Офис",
+  "Склад",
+  "Производство",
+  "Торговля",
+  "Открытая площадка",
+  "Light Industrial",
+  "Земельный участок",
+  "Аутсорсинг",
+  "Иное",
+  "Свободное назначение",
+];
+
+const leadAreaRangeOptions = [
+  "До 10",
+  "10–30",
+  "30–80",
+  "80–150",
+  "150–300",
+  "300–500",
+  "500–800",
+  "800–1000",
+  "1000–1500",
+  "1500–2000",
+  "2000 и более",
+];
+
+const leadActivityOptions = [
+  "Офисная",
+  "Бьюти",
+  "Медицина",
+  "Образование",
+  "Строительство",
+  "Спорт",
+  "Пищевая деятельность",
+  "Автомобильная деятельность",
+  "Деревообрабатывающая деятельность",
+  "Вендинг",
+  "Нет данных (Чат авито)",
+  "Маркетплейсы",
+  "Непродовольственный товар",
+  "Другое",
+  "Сервис / Услуги",
+  "Металлообработка",
+];
+
+const leadUrgencyOptions = [
+  "В течении недели",
+  "В течении месяца",
+  "До 6 месяцев",
+  "Не срочно (от 6 мес)",
+];
+
+const EMPTY_OPTION_LABEL = "Не выбрано";
 const leadStatusLabels = Object.fromEntries(leadStages);
 
 const dealStages = [
@@ -27,13 +145,20 @@ const state = {
   user: null,
   currentTab: "home",
   dragEntity: null,
+  dragSuppressUntil: 0,
   parserSources: [],
+  users: [],
   parserResults: {
     page: 1,
     pageSize: 20,
     pages: 1,
     total: 0,
     query: "",
+  },
+  leadCard: {
+    lead: null,
+    original: null,
+    events: [],
   },
 };
 
@@ -88,7 +213,56 @@ function formatMoney(value) {
 }
 
 function formatContact(item) {
-  return [item.contact_name, item.contact_phone, item.contact_email].filter(Boolean).join(" | ") || "-";
+  const parts = [item.contact_name, item.contact_phone, item.contact_email].filter(Boolean);
+  if (parts.length) return parts.join(" | ");
+  return "Телефон скрыт или недоступен";
+}
+
+function formatListingType(value) {
+  const normalized = String(value || "").toLowerCase();
+  if (!normalized) return "-";
+  if (normalized === "rent") return "Аренда";
+  if (normalized === "sale") return "Продажа";
+  return value;
+}
+
+function formatChannel(value) {
+  const normalized = String(value || "").toLowerCase();
+  const map = {
+    avito: "Avito",
+    cian: "Cian",
+    domclick: "Domclick",
+    yandex: "Yandex",
+    telegram: "Telegram",
+    bankrupt: "Банкротство",
+    manual: "Manual",
+  };
+  return map[normalized] || value || "-";
+}
+
+function formatAddress(item) {
+  const parts = [];
+  if (item.city) parts.push(item.city);
+  if (item.address_district) {
+    const district = item.address_district.toLowerCase().includes("район")
+      ? item.address_district
+      : `${item.address_district} район`;
+    parts.push(district);
+  }
+  if (item.address_street) {
+    parts.push(item.address_street);
+  } else if (item.normalized_address) {
+    parts.push(item.normalized_address);
+  }
+  return parts.filter(Boolean).join(", ");
+}
+
+function buildParserPhotoCell(item) {
+  if (item.image_url) {
+    const safeUrl = escapeHtml(item.image_url);
+    return `<img class="parser-thumb" src="${safeUrl}" alt="Фото объекта" loading="lazy" referrerpolicy="no-referrer" />`;
+  }
+  return `<div class="parser-thumb parser-thumb--placeholder">—</div>`;
 }
 
 function formatDateTime(value) {
@@ -104,6 +278,394 @@ function resolveRecordingUrl(url) {
   if (url.startsWith("/media/")) return url;
   if (url.startsWith("/")) return url;
   return `/${url}`;
+}
+
+function cloneJson(value) {
+  return value ? JSON.parse(JSON.stringify(value)) : value;
+}
+
+function canEditLead() {
+  return ["admin", "call_center", "sales", "manager"].includes(state.user?.role || "");
+}
+
+function setFieldError(input, hasError) {
+  if (!input) return;
+  const label = input.closest("label");
+  if (label) label.classList.toggle("field-error", hasError);
+}
+
+function populateSelect(selectEl, options) {
+  if (!(selectEl instanceof HTMLSelectElement)) return;
+  selectEl.innerHTML = "";
+  options.forEach((option) => {
+    const opt = document.createElement("option");
+    opt.value = option;
+    opt.textContent = option;
+    selectEl.appendChild(opt);
+  });
+}
+
+function normalizeSelectValue(value) {
+  if (value == null) return "";
+  const text = String(value).trim();
+  if (!text || text === EMPTY_OPTION_LABEL) return "";
+  return text;
+}
+
+function setSelectValue(selectEl, value) {
+  if (!(selectEl instanceof HTMLSelectElement)) return;
+  const options = Array.from(selectEl.options).map((opt) => opt.value);
+  let target = normalizeSelectValue(value);
+  if (!target) {
+    target = options.includes(EMPTY_OPTION_LABEL) ? EMPTY_OPTION_LABEL : options[0] || "";
+  }
+  if (!options.includes(target)) {
+    target = options[0] || "";
+  }
+  selectEl.value = target;
+}
+
+function getSelectValue(selectEl) {
+  if (!(selectEl instanceof HTMLSelectElement)) return null;
+  const value = selectEl.value;
+  if (!value || value === EMPTY_OPTION_LABEL) return null;
+  return value;
+}
+
+function setMultiSelectValue(selectEl, values) {
+  if (!(selectEl instanceof HTMLSelectElement)) return;
+  const selected = new Set(Array.isArray(values) ? values : []);
+  let hasSelection = false;
+  Array.from(selectEl.options).forEach((opt) => {
+    const isSelected = selected.has(opt.value);
+    opt.selected = isSelected;
+    if (isSelected) hasSelection = true;
+  });
+  if (!hasSelection) {
+    const placeholder = Array.from(selectEl.options).find((opt) => opt.value === EMPTY_OPTION_LABEL);
+    if (placeholder) placeholder.selected = true;
+  }
+}
+
+function getMultiSelectValue(selectEl) {
+  if (!(selectEl instanceof HTMLSelectElement)) return null;
+  const values = Array.from(selectEl.selectedOptions).map((opt) => opt.value);
+  const filtered = values.filter((value) => value && value !== EMPTY_OPTION_LABEL);
+  return filtered.length ? filtered : null;
+}
+
+function populateLeadSelects() {
+  populateSelect(document.getElementById("leadSourceSelect"), leadSourceOptions);
+  populateSelect(document.getElementById("leadNeedSelect"), leadNeedOptions);
+  populateSelect(document.getElementById("leadDistrictSelect"), leadDistrictOptions);
+  populateSelect(document.getElementById("leadAddressSelect"), leadAddressOptions);
+  populateSelect(document.getElementById("leadPropertyTypeSelect"), leadPropertyTypeOptions);
+  populateSelect(document.getElementById("leadAreaRangeSelect"), leadAreaRangeOptions);
+  populateSelect(document.getElementById("leadActivitySelect"), leadActivityOptions);
+  populateSelect(document.getElementById("leadUrgencySelect"), leadUrgencyOptions);
+}
+
+async function ensureUsersLoaded() {
+  if (state.users.length) return state.users;
+  try {
+    const users = await api("/users");
+    state.users = users;
+    return users;
+  } catch (error) {
+    state.users = state.user ? [state.user] : [];
+    return state.users;
+  }
+}
+
+function populateOwnerSelect(users) {
+  const selectEl = document.getElementById("leadOwnerSelect");
+  if (!(selectEl instanceof HTMLSelectElement)) return;
+  selectEl.innerHTML = "";
+  const emptyOpt = document.createElement("option");
+  emptyOpt.value = "";
+  emptyOpt.textContent = "Не назначен";
+  selectEl.appendChild(emptyOpt);
+  users.forEach((user) => {
+    const opt = document.createElement("option");
+    opt.value = String(user.id);
+    opt.textContent = user.full_name || user.email || `ID ${user.id}`;
+    selectEl.appendChild(opt);
+  });
+}
+
+function updateLeadCardMeta(lead) {
+  const titleEl = document.getElementById("leadCardTitle");
+  const metaEl = document.getElementById("leadCardMeta");
+  if (!lead) {
+    if (titleEl) titleEl.textContent = "";
+    if (metaEl) metaEl.textContent = "";
+    return;
+  }
+  if (titleEl) titleEl.textContent = `#${lead.id}`;
+  if (metaEl) {
+    const statusLabel = leadStatusLabels[lead.status] || lead.status;
+    metaEl.textContent = `Статус: ${statusLabel} • Создан: ${formatDateTime(lead.created_at)} • Обновлен: ${formatDateTime(
+      lead.updated_at
+    )}`;
+  }
+}
+
+function fillLeadForm(lead) {
+  const titleInput = document.getElementById("leadTitleInput");
+  const phoneInput = document.getElementById("leadPhoneInput");
+  const sourceSelect = document.getElementById("leadSourceSelect");
+  const needSelect = document.getElementById("leadNeedSelect");
+  const districtSelect = document.getElementById("leadDistrictSelect");
+  const addressSelect = document.getElementById("leadAddressSelect");
+  const propertyTypeSelect = document.getElementById("leadPropertyTypeSelect");
+  const areaRangeSelect = document.getElementById("leadAreaRangeSelect");
+  const activitySelect = document.getElementById("leadActivitySelect");
+  const urgencySelect = document.getElementById("leadUrgencySelect");
+  const sourceDetailsInput = document.getElementById("leadSourceDetailsInput");
+  const ownerSelect = document.getElementById("leadOwnerSelect");
+
+  if (titleInput) titleInput.value = lead?.title || "";
+  if (phoneInput) phoneInput.value = lead?.contact_phone || "";
+  if (sourceDetailsInput) sourceDetailsInput.value = lead?.source_details || "";
+
+  setSelectValue(sourceSelect, lead?.lead_source);
+  setSelectValue(needSelect, lead?.need_type);
+  setSelectValue(addressSelect, lead?.object_address);
+  setSelectValue(propertyTypeSelect, lead?.property_type);
+  setSelectValue(areaRangeSelect, lead?.area_range);
+  setSelectValue(activitySelect, lead?.business_activity);
+  setSelectValue(urgencySelect, lead?.urgency);
+  const districtValue = Array.isArray(lead?.search_districts) ? lead.search_districts[0] : lead?.search_districts;
+  setSelectValue(districtSelect, districtValue);
+
+  if (ownerSelect instanceof HTMLSelectElement) {
+    ownerSelect.value = lead?.owner_user_id ? String(lead.owner_user_id) : "";
+  }
+
+  if (titleInput) setFieldError(titleInput, false);
+}
+
+function readLeadForm() {
+  const titleInput = document.getElementById("leadTitleInput");
+  const phoneInput = document.getElementById("leadPhoneInput");
+  const sourceSelect = document.getElementById("leadSourceSelect");
+  const needSelect = document.getElementById("leadNeedSelect");
+  const districtSelect = document.getElementById("leadDistrictSelect");
+  const addressSelect = document.getElementById("leadAddressSelect");
+  const propertyTypeSelect = document.getElementById("leadPropertyTypeSelect");
+  const areaRangeSelect = document.getElementById("leadAreaRangeSelect");
+  const activitySelect = document.getElementById("leadActivitySelect");
+  const urgencySelect = document.getElementById("leadUrgencySelect");
+  const sourceDetailsInput = document.getElementById("leadSourceDetailsInput");
+  const ownerSelect = document.getElementById("leadOwnerSelect");
+
+  const districtValue = getSelectValue(districtSelect);
+  const payload = {
+    title: titleInput?.value.trim() || "",
+    contact_phone: phoneInput?.value.trim() || null,
+    lead_source: getSelectValue(sourceSelect),
+    need_type: getSelectValue(needSelect),
+    search_districts: districtValue ? [districtValue] : null,
+    object_address: getSelectValue(addressSelect),
+    property_type: getSelectValue(propertyTypeSelect),
+    area_range: getSelectValue(areaRangeSelect),
+    business_activity: getSelectValue(activitySelect),
+    urgency: getSelectValue(urgencySelect),
+    source_details: sourceDetailsInput?.value.trim() || null,
+    owner_user_id: ownerSelect?.value ? Number(ownerSelect.value) : null,
+  };
+
+  if (Number.isNaN(payload.owner_user_id)) payload.owner_user_id = null;
+  return payload;
+}
+
+function renderLeadStageBar(lead) {
+  const stageBar = document.getElementById("leadStageBar");
+  if (!stageBar) return;
+  stageBar.innerHTML = "";
+
+  const currentIndex = leadStages.findIndex(([key]) => key === lead.status);
+  leadStages.forEach(([key, label], index) => {
+    const stageEl = document.createElement("div");
+    stageEl.className = "lead-stage";
+    if (index < currentIndex) stageEl.classList.add("done");
+    if (index === currentIndex) stageEl.classList.add("active");
+    stageEl.textContent = label;
+
+    if (canEditLead()) {
+      stageEl.role = "button";
+      stageEl.tabIndex = 0;
+      stageEl.addEventListener("click", () => updateLeadStatus(key));
+      stageEl.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          updateLeadStatus(key);
+        }
+      });
+    }
+    stageBar.appendChild(stageEl);
+  });
+}
+
+function renderLeadEvents(events) {
+  const body = document.getElementById("leadEventTableBody");
+  if (!body) return;
+  body.innerHTML = "";
+
+  if (!events || !events.length) {
+    body.innerHTML = '<tr><td colspan="4" class="muted">История пока пустая.</td></tr>';
+    return;
+  }
+
+  const eventTypeLabels = {
+    created: "Создание",
+    status_changed: "Этап",
+    field_changed: "Изменение поля",
+    owner_changed: "Ответственный",
+    comment: "Комментарий",
+    system: "Системное событие",
+  };
+
+  const sorted = [...events].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  sorted.forEach((event) => {
+    const label = eventTypeLabels[event.event_type] || event.event_type;
+    const author = event.author_name || "Система";
+    const row = document.createElement("tr");
+    row.className = `lead-event-row ${event.event_type}`;
+    row.innerHTML = `
+      <td>${escapeHtml(label)}</td>
+      <td>${escapeHtml(author)}</td>
+      <td>${escapeHtml(formatDateTime(event.created_at))}</td>
+      <td>${escapeHtml(event.message || "")}</td>
+    `;
+    body.appendChild(row);
+  });
+}
+
+function setLeadCardTab(tabName) {
+  document.querySelectorAll(".lead-tab-btn").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.leadTab === tabName);
+  });
+  document.querySelectorAll(".lead-card-pane").forEach((pane) => {
+    pane.classList.toggle("active", pane.id === `leadTab${tabName === "history" ? "History" : "Params"}`);
+  });
+}
+
+async function createLead() {
+  if (!canEditLead()) return;
+  const now = new Date();
+  const dateLabel = now.toLocaleDateString("ru-RU");
+  const timeLabel = now.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+  const payload = { title: `Новый лид ${dateLabel} ${timeLabel}` };
+  try {
+    const lead = await api("/leads", { method: "POST", body: JSON.stringify(payload) });
+    await Promise.all([loadLeadsKanban(), loadDashboard()]);
+    await openLeadCard(lead.id);
+  } catch (error) {
+    alert(`Не удалось создать лид: ${error.message}`);
+  }
+}
+
+async function refreshLeadEvents(leadId) {
+  const events = await api(`/leads/${leadId}/events`);
+  state.leadCard.events = events;
+  renderLeadEvents(events);
+}
+
+async function reloadLeadCard(leadId) {
+  const [lead, events] = await Promise.all([api(`/leads/${leadId}`), api(`/leads/${leadId}/events`)]);
+  state.leadCard.lead = lead;
+  state.leadCard.original = cloneJson(lead);
+  state.leadCard.events = events;
+  fillLeadForm(lead);
+  renderLeadEvents(events);
+  updateLeadCardMeta(lead);
+}
+
+async function openLeadCard(leadId) {
+  const modal = document.getElementById("leadCardModal");
+  if (!modal) return;
+  try {
+    populateLeadSelects();
+    const users = await ensureUsersLoaded();
+    populateOwnerSelect(users);
+    await reloadLeadCard(leadId);
+    setLeadCardTab("params");
+    modal.classList.add("active");
+    const editable = canEditLead();
+    const saveBtn = document.getElementById("leadCardSaveBtn");
+    const cancelBtn = document.getElementById("leadCardCancelBtn");
+    if (saveBtn instanceof HTMLButtonElement) saveBtn.disabled = !editable;
+    if (cancelBtn instanceof HTMLButtonElement) cancelBtn.disabled = !editable;
+  } catch (error) {
+    alert(`Не удалось открыть карточку лида: ${error.message}`);
+  }
+}
+
+function closeLeadCard() {
+  const modal = document.getElementById("leadCardModal");
+  if (modal) modal.classList.remove("active");
+  state.leadCard.lead = null;
+  state.leadCard.original = null;
+  state.leadCard.events = [];
+}
+
+function cancelLeadCardChanges() {
+  if (!state.leadCard.original) return;
+  fillLeadForm(state.leadCard.original);
+}
+
+async function updateLeadStatus(statusKey) {
+  const lead = state.leadCard.lead;
+  if (!lead || lead.status === statusKey || !canEditLead()) return;
+  try {
+    await api(`/leads/${lead.id}/status`, { method: "PATCH", body: JSON.stringify({ status: statusKey }) });
+    await reloadLeadCard(lead.id);
+    await Promise.all([loadLeadsKanban(), loadDashboard()]);
+  } catch (error) {
+    alert(`Не удалось обновить этап: ${error.message}`);
+  }
+}
+
+async function saveLeadCard() {
+  const lead = state.leadCard.lead;
+  if (!lead || !canEditLead()) return;
+  const payload = readLeadForm();
+  const titleInput = document.getElementById("leadTitleInput");
+  if (!payload.title) {
+    setFieldError(titleInput, true);
+    titleInput?.focus();
+    return;
+  }
+  setFieldError(titleInput, false);
+
+  try {
+    const updated = await api(`/leads/${lead.id}`, { method: "PATCH", body: JSON.stringify(payload) });
+    state.leadCard.lead = updated;
+    state.leadCard.original = cloneJson(updated);
+    fillLeadForm(updated);
+    updateLeadCardMeta(updated);
+    await refreshLeadEvents(updated.id);
+    await Promise.all([loadLeadsKanban(), loadDashboard()]);
+  } catch (error) {
+    alert(`Не удалось сохранить лид: ${error.message}`);
+  }
+}
+
+async function submitLeadComment(event) {
+  event.preventDefault();
+  const lead = state.leadCard.lead;
+  if (!lead) return;
+  const input = document.getElementById("leadCommentInput");
+  const message = input?.value.trim();
+  if (!message) return;
+  try {
+    await api(`/leads/${lead.id}/comments`, { method: "POST", body: JSON.stringify({ message }) });
+    if (input) input.value = "";
+    await refreshLeadEvents(lead.id);
+  } catch (error) {
+    alert(`Не удалось добавить комментарий: ${error.message}`);
+  }
 }
 
 function buildKanban(containerId, items, stages, kind) {
@@ -145,6 +707,14 @@ function buildKanban(containerId, items, stages, kind) {
       }
       card.addEventListener("dragstart", () => {
         state.dragEntity = { kind, id: item.id };
+        state.dragSuppressUntil = Date.now() + 250;
+      });
+      card.addEventListener("dragend", () => {
+        state.dragEntity = null;
+      });
+      card.addEventListener("click", () => {
+        if (Date.now() < state.dragSuppressUntil) return;
+        if (kind === "lead") openLeadCard(item.id);
       });
       zone.appendChild(card);
     }
@@ -204,7 +774,9 @@ async function loadDashboard() {
       dealStatus.appendChild(el);
     });
   } catch (error) {
-    cards.innerHTML = `<div class="card"><div class="label">Dashboard unavailable</div><div>${escapeHtml(error.message)}</div></div>`;
+    cards.innerHTML = `<div class="card"><div class="label">Dashboard unavailable</div><div>${escapeHtml(
+      error.message
+    )}</div></div>`;
   }
 }
 
@@ -267,12 +839,16 @@ async function loadParserHub(options = {}) {
     const postUrlCell = postUrl
       ? `<a href="${escapeHtml(postUrl)}" target="_blank" rel="noreferrer">Open</a>`
       : "-";
+    const addressText = formatAddress(record);
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td>${record.id}</td>
-      <td>${escapeHtml(record.source_channel)}</td>
+      <td>${escapeHtml(formatChannel(record.source_channel))}</td>
       <td>${escapeHtml(record.status)}</td>
-      <td>${escapeHtml(record.title)}<br /><span class="muted">${escapeHtml(record.normalized_address || "-")}</span></td>
+      <td>${escapeHtml(formatListingType(record.listing_type))}</td>
+      <td>${buildParserPhotoCell(record)}</td>
+      <td>${escapeHtml(record.title)}</td>
+      <td><span class="parser-address">${escapeHtml(addressText || "-")}</span></td>
       <td>${postUrlCell}</td>
       <td>${escapeHtml(formatContact(record))}</td>
       <td class="actions">
@@ -532,6 +1108,7 @@ async function loadUsers() {
   const rows = document.getElementById("userRows");
   rows.innerHTML = "";
   const users = await api("/users");
+  state.users = users;
   for (const user of users) {
     const tr = document.createElement("tr");
     tr.innerHTML = `
@@ -555,7 +1132,7 @@ async function onTabChange(tabName) {
   if (tabName === "home") await loadDashboard();
   if (tabName === "leads") await loadLeadsKanban();
   if (tabName === "deals") await loadDealsKanban();
-  if (tabName === "parser") await Promise.all([loadParserHub(), loadParserSources(), loadParserRuns()]);
+  if (tabName === "parser") await Promise.all([loadParserHub(), loadParserRuns()]);
   if (tabName === "calls") await loadCalls();
   if (tabName === "users") await loadUsers();
 }
@@ -568,12 +1145,7 @@ async function boot() {
   if (me.user.role !== "admin") {
     document.getElementById("usersTabBtn").style.display = "none";
   }
-  if (!["admin", "manager"].includes(me.user.role)) {
-    document.getElementById("sourceForm").style.display = "none";
-  }
-  if (!["admin", "manager", "sales", "call_center"].includes(me.user.role)) {
-    document.getElementById("runParserNowBtn").style.display = "none";
-  }
+  populateLeadSelects();
 
   document.querySelectorAll(".tab-btn").forEach((btn) => {
     btn.addEventListener("click", () => onTabChange(btn.dataset.tab));
@@ -590,11 +1162,36 @@ async function boot() {
   });
 
   document.getElementById("refreshLeadsBtn").addEventListener("click", loadLeadsKanban);
-  document.getElementById("createLeadBtn").addEventListener("click", () => {
-    alert("Форма создания лида будет добавлена следующим шагом.");
-  });
+  document.getElementById("createLeadBtn").addEventListener("click", createLead);
   document.getElementById("refreshDealsBtn").addEventListener("click", loadDealsKanban);
   document.getElementById("refreshCallsBtn").addEventListener("click", loadCalls);
+
+  const modal = document.getElementById("leadCardModal");
+  if (modal) {
+    modal.addEventListener("click", (event) => {
+      const target = event.target;
+      if (target instanceof HTMLElement && target.dataset.action === "close") {
+        closeLeadCard();
+      }
+    });
+  }
+
+  document.getElementById("leadCardCloseBtn").addEventListener("click", closeLeadCard);
+  document.getElementById("leadCardCloseBtnBottom").addEventListener("click", closeLeadCard);
+  document.getElementById("leadCardCancelBtn").addEventListener("click", cancelLeadCardChanges);
+  document.getElementById("leadCardSaveBtn").addEventListener("click", saveLeadCard);
+  document.getElementById("leadCommentForm").addEventListener("submit", submitLeadComment);
+  document.querySelectorAll(".lead-tab-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const tabName = btn.dataset.leadTab;
+      if (tabName) setLeadCardTab(tabName);
+    });
+  });
+
+  const titleInput = document.getElementById("leadTitleInput");
+  if (titleInput) {
+    titleInput.addEventListener("input", () => setFieldError(titleInput, !titleInput.value.trim()));
+  }
 
   document.getElementById("parserRows").addEventListener("click", async (event) => {
     const target = event.target;
@@ -634,102 +1231,6 @@ async function boot() {
     if (state.parserResults.page >= state.parserResults.pages) return;
     state.parserResults.page += 1;
     await loadParserHub();
-  });
-
-  document.getElementById("sourceForm").addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const payload = Object.fromEntries(new FormData(event.target).entries());
-    payload.poll_minutes = Number(payload.poll_minutes || 1440);
-    payload.max_items_per_run = Number(payload.max_items_per_run || 10000);
-    const mode = payload.mode || "html";
-    const extraRaw = (payload.extra_config_json || "").trim();
-    delete payload.mode;
-    delete payload.extra_config_json;
-    let extraConfig = {};
-    if (extraRaw) {
-      try {
-        const parsed = JSON.parse(extraRaw);
-        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-          extraConfig = parsed;
-        }
-      } catch (error) {
-        alert(`Invalid extra JSON: ${error.message}`);
-        return;
-      }
-    }
-    extraConfig.mode = mode;
-    payload.extra_config = extraConfig;
-    await api("/parser/sources", { method: "POST", body: JSON.stringify(payload) });
-    event.target.reset();
-    await Promise.all([loadParserSources(), loadParserRuns()]);
-  });
-
-  document.getElementById("sourceRows").addEventListener("click", async (event) => {
-    const target = event.target;
-    if (!(target instanceof HTMLButtonElement)) return;
-    const sourceId = target.dataset.sourceId;
-    const sourceActive = target.dataset.sourceActive;
-    if (!sourceId || sourceActive == null) return;
-    await api(`/parser/sources/${sourceId}`, {
-      method: "PATCH",
-      body: JSON.stringify({ is_active: sourceActive === "true" }),
-    });
-    await loadParserSources();
-  });
-
-  document.getElementById("telegramCatalog").addEventListener("click", async (event) => {
-    const target = event.target;
-    if (!(target instanceof HTMLButtonElement)) return;
-    const action = target.dataset.action;
-    const sourceId = target.dataset.sourceId;
-    if (!action || !sourceId) return;
-
-    if (action === "toggle-whitelist") {
-      await patchTelegramSourceConfig(sourceId, (search) => {
-        search.whitelist_enabled = !Boolean(search.whitelist_enabled);
-        if (!Array.isArray(search.allowed_channels)) search.allowed_channels = [];
-      });
-      return;
-    }
-
-    if (action === "toggle-udmurtia") {
-      await patchTelegramSourceConfig(sourceId, (_search, filters) => {
-        filters.udmurtia_only = !Boolean(filters.udmurtia_only);
-      });
-      return;
-    }
-
-    if (action === "toggle-channel") {
-      const username = normalizeTelegramChannel(target.dataset.username || "");
-      if (!username) return;
-      await patchTelegramSourceConfig(sourceId, (search) => {
-        const current = Array.isArray(search.allowed_channels) ? search.allowed_channels : [];
-        const normalized = new Set(current.map((item) => normalizeTelegramChannel(item)).filter(Boolean));
-        if (normalized.has(username)) normalized.delete(username);
-        else normalized.add(username);
-        search.allowed_channels = Array.from(normalized).sort();
-      });
-    }
-  });
-
-  document.getElementById("runParserNowBtn").addEventListener("click", async () => {
-    await api("/parser/run-now", { method: "POST", body: "{}" });
-    state.parserResults.page = 1;
-    await Promise.all([loadParserRuns(), loadParserHub({ resetPage: true }), loadDashboard()]);
-  });
-
-  document.getElementById("ingestForm").addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const formData = new FormData(event.target);
-    const item = Object.fromEntries(formData.entries());
-    item.source_external_id = `${item.source_channel}-${Date.now()}`;
-    item.area_sqm = item.area_sqm ? Number(item.area_sqm) : null;
-    item.price_rub = item.price_rub ? Number(item.price_rub) : null;
-    item.payload = { entered_from_ui: true };
-    await api("/parser/ingest", { method: "POST", body: JSON.stringify({ items: [item] }) });
-    event.target.reset();
-    state.parserResults.page = 1;
-    await Promise.all([loadParserHub({ resetPage: true }), loadParserRuns(), loadDashboard()]);
   });
 
   document.getElementById("callManualForm").addEventListener("submit", async (event) => {

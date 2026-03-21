@@ -41,6 +41,12 @@ def parser_result_to_lead(
     db: Session, parser_result: ParserResult, title: str | None = None, owner_user_id: int | None = None
 ) -> Lead:
     property_obj = _get_or_create_property(db, parser_result)
+    source_label_map = {
+        SourceChannel.telegram: "Telegram",
+        SourceChannel.avito: "Avito",
+        SourceChannel.yandex: "Яндекс Недвижимость",
+        SourceChannel.bankrupt: "Банкротство",
+    }
     lead = Lead(
         agency_id=parser_result.agency_id,
         property_id=property_obj.id,
@@ -53,6 +59,7 @@ def parser_result_to_lead(
         status=LeadStatus.new_lead,
         source_channel=parser_result.source_channel,
         source_record_id=str(parser_result.id),
+        lead_source=source_label_map.get(parser_result.source_channel, "Не выбрано"),
     )
     db.add(lead)
     parser_result.status = ParserResultStatus.converted_to_lead

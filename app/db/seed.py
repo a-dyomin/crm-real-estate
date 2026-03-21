@@ -96,6 +96,7 @@ def _ensure_telegram_filters(extra_config: dict | None) -> dict:
 
 def seed_initial_data(db: Session) -> None:
     settings = get_settings()
+    avito_ready = bool(settings.avito_client_id and settings.avito_client_secret and settings.avito_user_id)
     agency_stmt: Select[tuple[Agency]] = select(Agency).where(Agency.id == 1)
     agency = db.execute(agency_stmt).scalar_one_or_none()
     if not agency:
@@ -134,7 +135,7 @@ def seed_initial_data(db: Session) -> None:
                     source_url="https://www.avito.ru/udmurtiya/kommercheskaya_nedvizhimost",
                     city="Izhevsk",
                     region_code="RU-UDM",
-                    is_active=False,
+                    is_active=avito_ready,
                     poll_minutes=1440,
                     max_items_per_run=10000,
                     extra_config=_ensure_avito_official_config(None),
@@ -143,10 +144,10 @@ def seed_initial_data(db: Session) -> None:
                     agency_id=agency.id,
                     name="Cian Commercial",
                     source_channel=SourceChannel.cian,
-                    source_url="https://www.cian.ru/commercial/",
+                    source_url="https://izhevsk.cian.ru/commercial/",
                     city="Izhevsk",
                     region_code="RU-UDM",
-                    is_active=False,
+                    is_active=True,
                     poll_minutes=1440,
                     max_items_per_run=10000,
                     extra_config={"mode": "html"},
@@ -158,7 +159,19 @@ def seed_initial_data(db: Session) -> None:
                     source_url="https://domclick.ru/commerce",
                     city="Izhevsk",
                     region_code="RU-UDM",
-                    is_active=False,
+                    is_active=True,
+                    poll_minutes=1440,
+                    max_items_per_run=10000,
+                    extra_config={"mode": "html"},
+                ),
+                ParserSource(
+                    agency_id=agency.id,
+                    name="Yandex Realty Commercial",
+                    source_channel=SourceChannel.yandex,
+                    source_url="https://realty.yandex.ru/izhevsk/kupit/kommercheskaya-nedvizhimost/",
+                    city="Izhevsk",
+                    region_code="RU-UDM",
+                    is_active=True,
                     poll_minutes=1440,
                     max_items_per_run=10000,
                     extra_config={"mode": "html"},
@@ -179,9 +192,73 @@ def seed_initial_data(db: Session) -> None:
                         "telegram_search": dict(DEFAULT_TELEGRAM_SEARCH),
                     },
                 ),
+                ParserSource(
+                    agency_id=agency.id,
+                    name="Bankruptcy Feed (Fedresurs)",
+                    source_channel=SourceChannel.bankrupt,
+                    source_url="https://bankrot.fedresurs.ru/",
+                    city="Izhevsk",
+                    region_code="RU-UDM",
+                    is_active=False,
+                    poll_minutes=1440,
+                    max_items_per_run=10000,
+                    extra_config={
+                        "mode": "html",
+                        "link_keywords": ["банкрот", "bankrot", "торги", "torgi", "auction"],
+                    },
+                ),
+                ParserSource(
+                    agency_id=agency.id,
+                    name="Bankruptcy Auctions (Kommersant)",
+                    source_channel=SourceChannel.bankrupt,
+                    source_url="https://bankruptcy.kommersant.ru/",
+                    city="Izhevsk",
+                    region_code="RU-UDM",
+                    is_active=False,
+                    poll_minutes=1440,
+                    max_items_per_run=10000,
+                    extra_config={
+                        "mode": "html",
+                        "link_keywords": ["банкрот", "торги", "auction", "sale"],
+                    },
+                ),
             ]
         )
     else:
+        existing_channels = {source.source_channel for source in sources}
+        if SourceChannel.yandex not in existing_channels:
+            db.add(
+                ParserSource(
+                    agency_id=agency.id,
+                    name="Yandex Realty Commercial",
+                    source_channel=SourceChannel.yandex,
+                    source_url="https://realty.yandex.ru/izhevsk/kupit/kommercheskaya-nedvizhimost/",
+                    city="Izhevsk",
+                    region_code="RU-UDM",
+                    is_active=True,
+                    poll_minutes=1440,
+                    max_items_per_run=10000,
+                    extra_config={"mode": "html"},
+                )
+            )
+        if SourceChannel.bankrupt not in existing_channels:
+            db.add(
+                ParserSource(
+                    agency_id=agency.id,
+                    name="Bankruptcy Feed (Fedresurs)",
+                    source_channel=SourceChannel.bankrupt,
+                    source_url="https://bankrot.fedresurs.ru/",
+                    city="Izhevsk",
+                    region_code="RU-UDM",
+                    is_active=False,
+                    poll_minutes=1440,
+                    max_items_per_run=10000,
+                    extra_config={
+                        "mode": "html",
+                        "link_keywords": ["банкрот", "bankrot", "торги", "torgi", "auction"],
+                    },
+                )
+            )
         for source in sources:
             if source.poll_minutes < 60:
                 source.poll_minutes = 1440
@@ -189,16 +266,31 @@ def seed_initial_data(db: Session) -> None:
                 source.name = "Telegram Realty Feed"
                 source.source_url = "https://t.me"
                 source.is_active = True
-            if source.name == "Cian Commercial" and source.source_url == "https://www.cian.ru/rent/commercial/":
-                source.source_url = "https://www.cian.ru/commercial/"
+            if source.name == "Cian Commercial" and source.source_url in (
+                "https://www.cian.ru/rent/commercial/",
+                "https://www.cian.ru/commercial/",
+            ):
+                source.source_url = "https://izhevsk.cian.ru/commercial/"
             if source.source_channel == SourceChannel.avito:
+                source.is_active = avito_ready
                 source.max_items_per_run = max(int(source.max_items_per_run or 10000), 10000)
                 source.extra_config = _ensure_avito_official_config(source.extra_config)
             if source.source_channel == SourceChannel.telegram:
                 source.max_items_per_run = max(int(source.max_items_per_run or 10000), 10000)
                 if source.source_url == "https://t.me/s/realty":
                     source.source_url = "https://t.me"
-                source.extra_config = _ensure_telegram_filters(source.extra_config)
+            if source.source_channel == SourceChannel.cian:
+                source.is_active = True
+            if source.source_channel == SourceChannel.domclick:
+                source.is_active = True
+            if source.source_channel == SourceChannel.yandex:
+                source.is_active = True
+                source.extra_config = source.extra_config or {"mode": "html"}
+            if source.source_channel == SourceChannel.bankrupt:
+                source.extra_config = source.extra_config or {
+                    "mode": "html",
+                    "link_keywords": ["банкрот", "bankrot", "торги", "torgi", "auction"],
+                }
             if source.name in {"Cian Commercial", "Domclick Commercial"}:
                 source.extra_config = source.extra_config or {"mode": "html"}
                 if source.last_success_at is None and source.last_error:

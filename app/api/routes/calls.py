@@ -255,6 +255,7 @@ def call_to_lead(call_id: int, current_user: User = Depends(get_current_user), d
         status=LeadStatus.new_lead,
         source_channel=SourceChannel.manual,
         source_record_id=f"call:{call.id}",
+        lead_source="Звонок",
     )
     db.add(lead)
     db.flush()

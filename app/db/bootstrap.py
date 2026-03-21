@@ -54,6 +54,20 @@ def apply_runtime_migrations(engine: Engine) -> None:
     _add_column_if_missing(engine, "users", "last_login_at", "DATETIME")
     _add_column_if_missing(engine, "users", "updated_at", "DATETIME")
     _normalize_legacy_lead_statuses(engine)
+    if _sqlite_table_exists(engine, "leads"):
+        _add_column_if_missing(engine, "leads", "lead_source", "VARCHAR(255)")
+        _add_column_if_missing(engine, "leads", "need_type", "VARCHAR(64)")
+        _add_column_if_missing(engine, "leads", "search_districts", "JSON")
+        _add_column_if_missing(engine, "leads", "object_address", "VARCHAR(255)")
+        _add_column_if_missing(engine, "leads", "property_type", "VARCHAR(64)")
+        _add_column_if_missing(engine, "leads", "area_range", "VARCHAR(64)")
+        _add_column_if_missing(engine, "leads", "business_activity", "VARCHAR(128)")
+        _add_column_if_missing(engine, "leads", "urgency", "VARCHAR(64)")
+        _add_column_if_missing(engine, "leads", "source_details", "TEXT")
 
     if _sqlite_table_exists(engine, "parser_results"):
         _add_column_if_missing(engine, "parser_results", "telegram_post_url", "VARCHAR(1024)")
+        _add_column_if_missing(engine, "parser_results", "listing_type", "VARCHAR(32)")
+        _add_column_if_missing(engine, "parser_results", "image_url", "VARCHAR(1024)")
+        _add_column_if_missing(engine, "parser_results", "address_district", "VARCHAR(128)")
+        _add_column_if_missing(engine, "parser_results", "address_street", "VARCHAR(255)")

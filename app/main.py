@@ -14,7 +14,19 @@ from app.db.session import SessionLocal, engine
 from app.services.parser_scheduler import parser_scheduler_loop
 
 # Import models so SQLAlchemy metadata can discover all tables.
-from app.models import agency, audit_log, call_record, deal, lead, parser_result, parser_run, parser_source, property, user  # noqa: F401
+from app.models import (  # noqa: F401
+    agency,
+    audit_log,
+    call_record,
+    deal,
+    lead,
+    lead_event,
+    parser_result,
+    parser_run,
+    parser_source,
+    property,
+    user,
+)
 
 settings = get_settings()
 Path(settings.media_dir).mkdir(parents=True, exist_ok=True)

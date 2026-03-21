@@ -3,26 +3,140 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Вход - CRE CRM</title>
+    <title>Вход - FORMA CRM</title>
     <link rel="stylesheet" href="/static/styles.css" />
   </head>
   <body data-api-prefix="{{ api_prefix }}" class="login-page">
-    <main class="login-card">
-      <h1>Вход в CRE CRM</h1>
-      <p>Регистрация отключена. Доступ выдаёт администратор.</p>
-      <form id="loginForm" class="grid single">
-        <label>Email
-          <input type="email" name="email" required />
-        </label>
-        <label>Пароль
-          <input type="password" name="password" minlength="8" required />
-        </label>
-        <button type="submit">Войти</button>
-      </form>
-      <div class="hint">
-        Демо-админ: <code>admin@crecrm.app</code> / <code>admin123</code>
-      </div>
-      <div id="loginError" class="error"></div>
+    <main class="login-shell">
+      <section class="login-card">
+        <div class="brand" style="margin-bottom: 12px;">
+          <img class="brand-logo" src="/static/forma-icon.svg" alt="FORMA" />
+          <div class="brand-text">
+            <h1>FORMA</h1>
+            <p>CRM для структуры и контроля</p>
+          </div>
+        </div>
+        <p>Регистрация отключена. Доступ выдаёт администратор.</p>
+        <form id="loginForm" class="grid single">
+          <label>Email
+            <input type="email" name="email" required />
+          </label>
+          <label>Пароль
+            <input type="password" name="password" minlength="8" required />
+          </label>
+          <button type="submit">Войти</button>
+        </form>
+        <div class="hint">
+          Демо-админ: <code>admin@crecrm.app</code> / <code>admin123</code>
+        </div>
+        <div id="loginError" class="error"></div>
+      </section>
+
+      <section class="login-info">
+        <div class="home-hero">
+          <div class="hero-copy">
+            <span class="badge">FORMA CRM</span>
+            <h2>Структура и контроль для коммерческих продаж</h2>
+            <p>
+              FORMA помогает выстроить процессы, управлять сделками и видеть картину по каждому
+              этапу воронки. Минимум шума — максимум ясности.
+            </p>
+            <div class="hero-actions">
+              <button>Запросить демо</button>
+              <button class="secondary">Посмотреть структуру</button>
+            </div>
+          </div>
+          <div class="hero-visual">
+            <div class="hero-mock">
+              <strong>Операционная панель</strong>
+              <div class="mock-row">
+                <div class="mock-tile">Лиды</div>
+                <div class="mock-tile">Сделки</div>
+                <div class="mock-tile">Parser Hub</div>
+              </div>
+              <div class="mock-row">
+                <div class="mock-tile">Контроль SLA</div>
+                <div class="mock-tile">Отчёты</div>
+                <div class="mock-tile">Колл-центр</div>
+              </div>
+            </div>
+            <div class="hero-mock">
+              <strong>Поток сделки</strong>
+              <div class="flow">
+                <div class="flow-step">Источник</div>
+                <div class="flow-step">Лид</div>
+                <div class="flow-step">Сделка</div>
+                <div class="flow-step">Контроль</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="home-section">
+          <h3>Ключевые возможности</h3>
+          <div class="feature-grid">
+            <div class="feature-card">
+              <svg viewBox="0 0 24 24" fill="none">
+                <path d="M4 5h16M4 12h10M4 19h7" stroke-width="1.6" stroke-linecap="round" />
+              </svg>
+              <h4>Процессная структура</h4>
+              <p class="muted">Стандартизируйте этапы и управляйте потоком без лишнего шума.</p>
+            </div>
+            <div class="feature-card">
+              <svg viewBox="0 0 24 24" fill="none">
+                <path d="M5 12l4 4L19 6" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+              <h4>Продажи и контроль</h4>
+              <p class="muted">Прозрачная воронка и контроль качества на каждом шаге.</p>
+            </div>
+            <div class="feature-card">
+              <svg viewBox="0 0 24 24" fill="none">
+                <path d="M4 19V5m0 14h16" stroke-width="1.6" stroke-linecap="round" />
+                <path d="M7 14l3-3 4 4 5-6" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+              <h4>Аналитика</h4>
+              <p class="muted">Единые показатели по лидам, сделкам и эффективности.</p>
+            </div>
+            <div class="feature-card">
+              <svg viewBox="0 0 24 24" fill="none">
+                <path d="M12 4v16M4 12h16" stroke-width="1.6" stroke-linecap="round" />
+              </svg>
+              <h4>Задачи и коммуникации</h4>
+              <p class="muted">Фиксируйте задачи, звонки и комментарии в одном пространстве.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="home-section">
+          <h3>Преимущества</h3>
+          <div class="benefit-grid">
+            <div class="benefit-card">
+              <strong>Больше контроля</strong>
+              <span class="muted">Все процессы и статусы в единой системе.</span>
+            </div>
+            <div class="benefit-card">
+              <strong>Быстрее процессы</strong>
+              <span class="muted">Сокращайте ручные операции и держите SLA.</span>
+            </div>
+            <div class="benefit-card">
+              <strong>Масштабирование</strong>
+              <span class="muted">Готовая структура для работы в регионах.</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="home-section">
+          <h3>Интеграции</h3>
+          <div class="integration-list">
+            <span class="integration-pill">Avito</span>
+            <span class="integration-pill">Cian</span>
+            <span class="integration-pill">Domclick</span>
+            <span class="integration-pill">Yandex Realty</span>
+            <span class="integration-pill">Telegram</span>
+            <span class="integration-pill">Bankruptcy</span>
+          </div>
+        </div>
+      </section>
     </main>
 
     <script src="/static/login.js"></script>

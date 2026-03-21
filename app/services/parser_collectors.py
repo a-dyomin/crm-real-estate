@@ -30,10 +30,29 @@ BLOCKED_TEXT_MARKERS = (
 )
 URL_RE = re.compile(r"https?://[^\s<>\")\]]+")
 PHONE_RE = re.compile(r"(?:\+7|8)[\s\-\(\)]*\d{3}[\s\-\(\)]*\d{3}[\s\-]*\d{2}[\s\-]*\d{2}")
+PHONE_JSON_RE = re.compile(
+    r'"(?:phone|phones|telephone|mobile|contactPhone|contact_phone|sellerPhone)"\s*:\s*"([^"]{10,60})"',
+    re.IGNORECASE,
+)
+TEL_RE = re.compile(r"tel:\s*([+\d][\d\s\-()]{9,})", re.IGNORECASE)
 EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+IMAGE_EXT_RE = re.compile(r"\.(?:jpg|jpeg|png|webp)(?:\?|$)", re.IGNORECASE)
+CHARSET_META_RE = re.compile(rb"charset=['\"]?([A-Za-z0-9._-]+)", re.IGNORECASE)
 PRICE_RE = re.compile(r"(\d[\d\s]{2,})\s*(?:\u0440\u0443\u0431|\u20bd)", re.IGNORECASE)
 AREA_RE = re.compile(r"(\d+(?:[.,]\d+)?)\s*(?:\u043c2|\u043c\u00b2|\u043a\u0432\.?\s*\u043c|sqm|sq\.?\s*m)", re.IGNORECASE)
 ADDRESS_RE = re.compile(r"(?:\u0430\u0434\u0440\u0435\u0441|location)\s*[:\-]\s*([^\n\r|;]{8,150})", re.IGNORECASE)
+STREET_RE = re.compile(
+    r"\b(?:ул\.?|улица|пр-?кт|проспект|пер\.?|переулок|шоссе|бульвар|наб\.?|набережная|проезд|пл\.?|площадь|мкр\.?|микрорайон)\s*[^,;\n]{3,80}",
+    re.IGNORECASE,
+)
+UDMURTIA_DISTRICTS = (
+    "\u0423\u0441\u0442\u0438\u043d\u043e\u0432\u0441\u043a\u0438\u0439",
+    "\u041f\u0435\u0440\u0432\u043e\u043c\u0430\u0439\u0441\u043a\u0438\u0439",
+    "\u0418\u043d\u0434\u0443\u0441\u0442\u0440\u0438\u0430\u043b\u044c\u043d\u044b\u0439",
+    "\u041b\u0435\u043d\u0438\u043d\u0441\u043a\u0438\u0439",
+    "\u041e\u043a\u0442\u044f\u0431\u0440\u044c\u0441\u043a\u0438\u0439",
+    "\u0417\u0430\u0432\u044c\u044f\u043b\u043e\u0432\u0441\u043a\u0438\u0439",
+)
 DEFAULT_TELEGRAM_COMMERCIAL_KEYWORDS = (
     "\u043a\u043e\u043c\u043c\u0435\u0440\u0447\u0435\u0441\u043a",
     "\u043d\u0435\u0434\u0432\u0438\u0436\u0438\u043c",
@@ -60,6 +79,26 @@ DEFAULT_TELEGRAM_TRANSACTION_KEYWORDS = (
     "lease",
     "rent",
     "sale",
+)
+LISTING_RENT_KEYWORDS = (
+    "\u0430\u0440\u0435\u043d\u0434",
+    "\u0441\u0434\u0430\u043c",
+    "\u0441\u0434\u0430\u0435\u0442\u0441\u044f",
+    "\u0441\u0434\u0430\u0435\u043c",
+    "\u0441\u043d\u0438\u043c\u0443",
+    "\u0430\u0440\u0435\u043d\u0434\u0443\u044e",
+    "rent",
+    "lease",
+    "sublease",
+)
+LISTING_SALE_KEYWORDS = (
+    "\u043f\u0440\u043e\u0434\u0430\u0436",
+    "\u043f\u0440\u043e\u0434\u0430\u0435\u0442",
+    "\u043f\u0440\u043e\u0434\u0430\u043c",
+    "\u043a\u0443\u043f\u043b\u044e",
+    "\u043a\u0443\u043f\u0438\u0442\u044c",
+    "sale",
+    "sell",
 )
 DEFAULT_TELEGRAM_REAL_ESTATE_KEYWORDS = (
     "\u043d\u0435\u0434\u0432\u0438\u0436\u0438\u043c",
@@ -107,6 +146,7 @@ DEFAULT_TELEGRAM_SEARCH_QUERIES = (
     "\u0441\u043a\u043b\u0430\u0434 \u0438\u0436\u0435\u0432\u0441\u043a",
     "\u043f\u0440\u043e\u0434\u0430\u0436\u0430 \u043a\u043e\u043c\u043c\u0435\u0440\u0447\u0435\u0441\u043a\u043e\u0439 \u043d\u0435\u0434\u0432\u0438\u0436\u0438\u043c\u043e\u0441\u0442\u0438",
 )
+TELEGRAM_BG_IMAGE_RE = re.compile(r"url\(['\"]?([^'\")]+)['\"]?\)")
 DEFAULT_AVITO_ITEM_STATUSES = ("active",)
 AVITO_ALLOWED_ITEM_STATUSES = {"active", "removed", "old", "blocked", "rejected"}
 _AVITO_TOKEN_CACHE: dict[str, Any] = {"client_id": "", "access_token": "", "expires_at": None}
@@ -119,6 +159,49 @@ def _normalize_text(value: str | None) -> str:
 def _looks_like_html(value: str) -> bool:
     probe = value[:1000].lower()
     return "<html" in probe or "<body" in probe or "<!doctype html" in probe
+
+
+def _looks_like_mojibake(value: str) -> bool:
+    sample = value[:2000]
+    return "\u00d0" in sample or "\u00d1" in sample
+
+
+def _decode_response_text(response: requests.Response) -> str:
+    content = response.content or b""
+    if not content:
+        return response.text or ""
+    encoding_candidates: list[str] = []
+    meta_match = CHARSET_META_RE.search(content[:4096])
+    if meta_match:
+        try:
+            encoding_candidates.append(meta_match.group(1).decode("ascii", errors="ignore"))
+        except Exception:
+            pass
+    if response.encoding:
+        encoding_candidates.append(response.encoding)
+    if response.apparent_encoding:
+        encoding_candidates.append(response.apparent_encoding)
+    encoding_candidates.extend(["utf-8", "cp1251"])
+    tried: set[str] = set()
+    for encoding in encoding_candidates:
+        normalized = str(encoding or "").strip().lower()
+        if not normalized or normalized in tried:
+            continue
+        tried.add(normalized)
+        try:
+            text = content.decode(normalized)
+        except Exception:
+            continue
+        if _looks_like_mojibake(text):
+            try:
+                repaired = text.encode("latin1", errors="ignore").decode("utf-8", errors="ignore")
+            except Exception:
+                repaired = ""
+            if repaired and not _looks_like_mojibake(repaired):
+                return repaired
+            continue
+        return text
+    return content.decode("utf-8", errors="replace")
 
 
 def _build_mirror_url(url: str) -> str:
@@ -152,7 +235,7 @@ def _fetch_text(url: str) -> str:
         if _is_blocked_response(response):
             raise ValueError(f"Source access blocked for URL: {url}")
         response.raise_for_status()
-        text = response.text or ""
+        text = _decode_response_text(response)
         if not text.strip():
             raise ValueError("Source returned empty response body.")
         return text
@@ -170,7 +253,7 @@ def _fetch_text(url: str) -> str:
             timeout=settings.parser_request_timeout_sec,
         )
         response.raise_for_status()
-        text = response.text or ""
+        text = _decode_response_text(response)
         if not text.strip():
             raise ValueError("Mirror returned empty response body.")
         return text
@@ -205,6 +288,299 @@ def _extract_area(text: str) -> float | None:
         return float(raw)
     except ValueError:
         return None
+
+
+def _extract_phone_from_payload(payload: Any, *, depth: int = 0) -> str | None:
+    if payload is None or depth > 4:
+        return None
+    if isinstance(payload, str):
+        return _extract_first(PHONE_RE, payload)
+    if isinstance(payload, dict):
+        for key in (
+            "phone",
+            "phones",
+            "telephone",
+            "mobile",
+            "contactPhone",
+            "contact_phone",
+            "sellerPhone",
+            "calltracking",
+            "calltrackingNumber",
+            "formattedPhone",
+            "tel",
+        ):
+            if key in payload:
+                phone = _extract_phone_from_payload(payload.get(key), depth=depth + 1)
+                if phone:
+                    return phone
+        for value in payload.values():
+            phone = _extract_phone_from_payload(value, depth=depth + 1)
+            if phone:
+                return phone
+    if isinstance(payload, list):
+        for item in payload[:50]:
+            phone = _extract_phone_from_payload(item, depth=depth + 1)
+            if phone:
+                return phone
+    return None
+
+
+def _extract_image_from_payload(payload: Any, *, base_url: str = "", depth: int = 0) -> str | None:
+    if payload is None or depth > 4:
+        return None
+    if isinstance(payload, str):
+        if IMAGE_EXT_RE.search(payload):
+            return urljoin(base_url, payload)
+        return None
+    if isinstance(payload, dict):
+        for key in (
+            "image",
+            "image_url",
+            "imageUrl",
+            "photo",
+            "photo_url",
+            "photoUrl",
+            "preview",
+            "thumbnail",
+            "cover",
+            "gallery",
+            "images",
+            "photos",
+        ):
+            if key in payload:
+                image = _extract_image_from_payload(payload.get(key), base_url=base_url, depth=depth + 1)
+                if image:
+                    return image
+        for value in payload.values():
+            image = _extract_image_from_payload(value, base_url=base_url, depth=depth + 1)
+            if image:
+                return image
+    if isinstance(payload, list):
+        for item in payload[:50]:
+            image = _extract_image_from_payload(item, base_url=base_url, depth=depth + 1)
+            if image:
+                return image
+    return None
+
+
+def _extract_phone_from_html(raw_text: str, soup: BeautifulSoup) -> str | None:
+    for anchor in soup.select('a[href^="tel:"]'):
+        href = (anchor.get("href") or "").strip()
+        match = TEL_RE.search(href)
+        if match:
+            return _normalize_text(match.group(1))
+
+    for attr in ("data-phone", "data-tel", "data-contact-phone", "data-qa-phone"):
+        for node in soup.select(f'[{attr}]'):
+            value = (node.get(attr) or "").strip()
+            if value:
+                match = PHONE_RE.search(value)
+                if match:
+                    return _normalize_text(match.group(0))
+
+    json_match = PHONE_JSON_RE.search(raw_text)
+    if json_match:
+        phone_candidate = json_match.group(1)
+        match = PHONE_RE.search(phone_candidate)
+        if match:
+            return _normalize_text(match.group(0))
+
+    for script in soup.select('script[type="application/ld+json"], script[type="application/json"]'):
+        raw = script.string or script.get_text(" ", strip=True)
+        if not raw:
+            continue
+        try:
+            data = json.loads(raw)
+        except Exception:
+            continue
+        phone = _extract_phone_from_payload(data)
+        if phone:
+            return phone
+
+    return _extract_first(PHONE_RE, raw_text)
+
+
+def _extract_image_url(soup: BeautifulSoup, base_url: str) -> str | None:
+    meta = soup.select_one('meta[property="og:image"], meta[name="og:image"], meta[property="twitter:image"], meta[name="twitter:image"]')
+    if meta:
+        content = (meta.get("content") or "").strip()
+        if content:
+            return urljoin(base_url, content)
+
+    for img in soup.select("img[src]"):
+        src = (img.get("src") or "").strip()
+        if not src or src.startswith("data:"):
+            continue
+        resolved = urljoin(base_url, src)
+        if resolved:
+            return resolved
+    return None
+
+
+def _extract_image_from_soup(soup: BeautifulSoup, base_url: str) -> str | None:
+    image = _extract_image_url(soup, base_url)
+    if image:
+        return image
+    for script in soup.select('script[type="application/ld+json"], script[type="application/json"]'):
+        raw = script.string or script.get_text(" ", strip=True)
+        if not raw:
+            continue
+        try:
+            data = json.loads(raw)
+        except Exception:
+            continue
+        image = _extract_image_from_payload(data, base_url=base_url)
+        if image:
+            return image
+    return None
+
+
+def _is_address_candidate(value: str) -> bool:
+    if not value:
+        return False
+    trimmed = _normalize_text(value)
+    if not trimmed:
+        return False
+    lowered = trimmed.lower()
+    if lowered.startswith("http"):
+        return False
+    if len(trimmed) < 6:
+        return False
+    if re.search(r"\d", trimmed):
+        return True
+    return any(
+        token in lowered
+        for token in (
+            "ул",
+            "улиц",
+            "просп",
+            "пр-кт",
+            "шоссе",
+            "район",
+            "street",
+            "st.",
+            "ave",
+        )
+    )
+
+
+def _extract_address_from_payload(payload: Any, *, depth: int = 0) -> str | None:
+    if payload is None or depth > 4:
+        return None
+    if isinstance(payload, str):
+        return _normalize_text(payload) if _is_address_candidate(payload) else None
+    if isinstance(payload, dict):
+        address_value = payload.get("address")
+        if address_value:
+            address_candidate = _extract_address_from_payload(address_value, depth=depth + 1)
+            if address_candidate:
+                return address_candidate
+        parts: list[str] = []
+        for key in ("addressRegion", "addressLocality", "streetAddress", "addressLine"):
+            value = payload.get(key)
+            if isinstance(value, str) and value.strip():
+                parts.append(_normalize_text(value))
+        if parts:
+            unique_parts = [part for idx, part in enumerate(parts) if part and part not in parts[:idx]]
+            return ", ".join(unique_parts)
+        for key, value in payload.items():
+            key_lower = str(key).lower()
+            if key_lower.startswith("@"):
+                continue
+            if not any(token in key_lower for token in ("address", "location", "geo", "place", "region", "locality", "street")):
+                continue
+            address_candidate = _extract_address_from_payload(value, depth=depth + 1)
+            if address_candidate:
+                return address_candidate
+    if isinstance(payload, list):
+        for item in payload[:50]:
+            address_candidate = _extract_address_from_payload(item, depth=depth + 1)
+            if address_candidate:
+                return address_candidate
+    return None
+
+
+def _extract_address_from_soup(soup: BeautifulSoup) -> str | None:
+    street_node = soup.select_one('[itemprop="streetAddress"]')
+    locality_node = soup.select_one('[itemprop="addressLocality"]')
+    region_node = soup.select_one('[itemprop="addressRegion"]')
+    parts = [
+        _normalize_text(node.get_text(" ", strip=True)) if node else ""
+        for node in (region_node, locality_node, street_node)
+    ]
+    parts = [part for part in parts if part]
+    if parts:
+        return ", ".join(parts)
+    return None
+
+
+def _passes_region_filter(source: ParserSource, text: str, normalized_address: str | None) -> bool:
+    if not source.city and not source.region_code:
+        return True
+    if normalized_address:
+        address_lower = normalized_address.lower()
+        if source.city:
+            city = source.city.lower()
+            if city and city in address_lower:
+                return True
+        if source.region_code == "RU-UDM":
+            if any(keyword.lower() in address_lower for keyword in DEFAULT_TELEGRAM_UDMURTIA_KEYWORDS):
+                return True
+            return False
+    combined = _normalize_text(text).lower()
+    if source.city:
+        city = source.city.lower()
+        if city and city in combined:
+            return True
+    if source.region_code == "RU-UDM":
+        if any(keyword.lower() in combined for keyword in DEFAULT_TELEGRAM_UDMURTIA_KEYWORDS):
+            return True
+        return False
+    return True
+
+
+def _detect_listing_type(text: str, url: str = "") -> str | None:
+    url_normalized = _normalize_text(url).lower()
+    if any(token in url_normalized for token in ("snyat", "rent", "arenda", "lease", "/arenda", "/rent")):
+        return "rent"
+    if any(token in url_normalized for token in ("kupit", "sale", "sell", "prodazha", "/sale")):
+        return "sale"
+    normalized = _normalize_text(text).lower()
+    if any(keyword in normalized for keyword in LISTING_RENT_KEYWORDS):
+        return "rent"
+    if any(keyword in normalized for keyword in LISTING_SALE_KEYWORDS):
+        return "sale"
+    return None
+
+
+def _extract_district(text: str | None) -> str | None:
+    if not text:
+        return None
+    normalized = text.lower()
+    for district in UDMURTIA_DISTRICTS:
+        if district.lower() in normalized:
+            return district
+    match = re.search(r"([А-ЯЁа-яё-]{4,})\s+район", text)
+    if match:
+        return _normalize_text(match.group(1))
+    return None
+
+
+def _extract_street(text: str | None) -> str | None:
+    if not text:
+        return None
+    match = STREET_RE.search(text)
+    if match:
+        return _normalize_text(match.group(0))
+    return None
+
+
+def _extract_address_parts(text: str, normalized_address: str | None) -> tuple[str | None, str | None]:
+    district = _extract_district(text)
+    street = _extract_street(normalized_address or text)
+    if not street and normalized_address:
+        street = _normalize_text(normalized_address)
+    return district, street
 
 
 def _to_float(value: object) -> float | None:
@@ -280,6 +656,12 @@ def _is_listing_url(source_channel: SourceChannel, resolved_url: str) -> bool:
         return "cian.ru" in host and bool(re.search(r"/(?:rent|sale)/commercial/\d+/?$", path))
     if source_channel == SourceChannel.domclick:
         return "domclick.ru" in host and ("/card/" in path or "commerce" in path)
+    if source_channel == SourceChannel.yandex:
+        if "realty.yandex.ru" not in host:
+            return False
+        return bool(re.search(r"/(?:offer|commercial)/\d+/?$", path))
+    if source_channel == SourceChannel.bankrupt:
+        return True
     return False
 
 
@@ -288,7 +670,19 @@ def _canonical_listing_url(url: str) -> str:
     return f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
 
 
-def _extract_listing_links(source_channel: SourceChannel, base_url: str, source_text: str) -> list[str]:
+def _bankrupt_link_keywords(source: ParserSource) -> tuple[str, ...]:
+    extra = source.extra_config or {}
+    raw_keywords = extra.get("link_keywords")
+    if isinstance(raw_keywords, list):
+        cleaned = [str(item).strip().lower() for item in raw_keywords if str(item).strip()]
+        if cleaned:
+            return tuple(cleaned)
+    return ("bankrot", "банкрот", "торги", "torgi", "auction")
+
+
+def _extract_listing_links(source: ParserSource, base_url: str, source_text: str) -> list[str]:
+    source_channel = source.source_channel
+    link_keywords = _bankrupt_link_keywords(source) if source_channel == SourceChannel.bankrupt else ()
     links: set[str] = set()
     soup = BeautifulSoup(source_text, "html.parser")
     for anchor in soup.select("a[href]"):
@@ -296,6 +690,13 @@ def _extract_listing_links(source_channel: SourceChannel, base_url: str, source_
         if not href:
             continue
         resolved = urljoin(base_url, href)
+        if source_channel == SourceChannel.bankrupt and link_keywords:
+            anchor_text = _normalize_text(anchor.get_text(" ", strip=True)).lower()
+            resolved_lower = resolved.lower()
+            if not any(keyword in resolved_lower or keyword in anchor_text for keyword in link_keywords):
+                continue
+            links.add(_canonical_listing_url(resolved))
+            continue
         if _is_listing_url(source_channel, resolved):
             links.add(_canonical_listing_url(resolved))
 
@@ -305,6 +706,11 @@ def _extract_listing_links(source_channel: SourceChannel, base_url: str, source_
     for raw_url in URL_RE.findall(source_text):
         normalized = _normalize_url_candidate(raw_url)
         resolved = urljoin(base_url, normalized)
+        if source_channel == SourceChannel.bankrupt and link_keywords:
+            resolved_lower = resolved.lower()
+            if any(keyword in resolved_lower for keyword in link_keywords):
+                links.add(_canonical_listing_url(resolved))
+            continue
         if _is_listing_url(source_channel, resolved):
             links.add(_canonical_listing_url(resolved))
     return sorted(links)
@@ -322,6 +728,23 @@ def _json_ld_text(soup: BeautifulSoup) -> str:
             continue
         chunks.append(_normalize_text(json.dumps(data, ensure_ascii=False)))
     return " ".join(chunks)
+
+
+def _extract_json_payloads(soup: BeautifulSoup) -> list[Any]:
+    payloads: list[Any] = []
+    for script in soup.select('script[type="application/ld+json"], script[type="application/json"]'):
+        raw = script.string or script.get_text(" ", strip=True)
+        if not raw:
+            continue
+        try:
+            data = json.loads(raw)
+        except Exception:
+            continue
+        if isinstance(data, list):
+            payloads.extend(data)
+        else:
+            payloads.append(data)
+    return payloads
 
 
 def _strip_markdown(value: str) -> str:
@@ -346,7 +769,7 @@ def _extract_markdown_title(value: str) -> str | None:
     return None
 
 
-def _build_item_from_detail(source: ParserSource, listing_url: str, raw_text: str) -> ParserIngestItem:
+def _build_item_from_detail(source: ParserSource, listing_url: str, raw_text: str) -> ParserIngestItem | None:
     if _looks_like_html(raw_text):
         soup = BeautifulSoup(raw_text, "html.parser")
         title_node = soup.select_one("h1")
@@ -360,13 +783,34 @@ def _build_item_from_detail(source: ParserSource, listing_url: str, raw_text: st
         description_node = soup.select_one('meta[name="description"]')
         description = description_node.get("content", "") if description_node else ""
         body_text = soup.get_text(" ", strip=True)
-        text = _normalize_text(" ".join([page_title, description, body_text[:8000], _json_ld_text(soup)]))
+        json_ld_text = _json_ld_text(soup)
+        text = _normalize_text(" ".join([page_title, description, body_text[:8000], json_ld_text]))
+        json_payloads = _extract_json_payloads(soup)
+        address_from_payload = None
+        for payload in json_payloads:
+            address_from_payload = _extract_address_from_payload(payload)
+            if address_from_payload:
+                break
+        address_from_soup = _extract_address_from_soup(soup)
+        image_url = _extract_image_from_soup(soup, listing_url)
+        phone = _extract_phone_from_html(raw_text, soup) or _extract_first(PHONE_RE, text)
+        listing_hint = _normalize_text(" ".join([page_title, description]))
     else:
         page_title = _extract_markdown_title(raw_text) or f"{source.source_channel.value} listing"
         text = _strip_markdown(raw_text)[:12000]
+        image_url = None
+        phone = _extract_first(PHONE_RE, text)
+        listing_hint = text
+        address_from_payload = None
+        address_from_soup = None
 
     address_match = ADDRESS_RE.search(text)
-    address = _normalize_text(address_match.group(1)) if address_match else None
+    address_raw = address_from_payload or address_from_soup or (address_match.group(1) if address_match else "")
+    address = _normalize_text(address_raw) if address_raw else None
+    if not _passes_region_filter(source, text, address):
+        return None
+    address_district, address_street = _extract_address_parts(text, address)
+    listing_type = _detect_listing_type(listing_hint, listing_url)
 
     return ParserIngestItem(
         source_channel=source.source_channel,
@@ -374,13 +818,17 @@ def _build_item_from_detail(source: ParserSource, listing_url: str, raw_text: st
         raw_url=listing_url,
         title=page_title[:255] if page_title else f"{source.source_channel.value} listing",
         description=text[:4000],
+        listing_type=listing_type,
+        image_url=image_url,
         normalized_address=address,
+        address_district=address_district,
+        address_street=address_street,
         city=source.city,
         region_code=source.region_code,
         area_sqm=_extract_area(text),
         price_rub=_extract_price(text),
         contact_name=source.name,
-        contact_phone=_extract_first(PHONE_RE, text),
+        contact_phone=phone,
         contact_email=_extract_first(EMAIL_RE, text),
         intent=_detect_intent(text),
         payload={"source_name": source.name, "source_url": source.source_url, "parser": "html_scraper"},
@@ -389,7 +837,7 @@ def _build_item_from_detail(source: ParserSource, listing_url: str, raw_text: st
 
 def _collect_marketplace_items(source: ParserSource) -> list[ParserIngestItem]:
     source_text = _fetch_text(source.source_url)
-    links = _extract_listing_links(source.source_channel, source.source_url, source_text)
+    links = _extract_listing_links(source, source.source_url, source_text)
     if not links:
         raise ValueError("No listing links were extracted from source page.")
 
@@ -400,7 +848,9 @@ def _collect_marketplace_items(source: ParserSource) -> list[ParserIngestItem]:
     for link in links[:detail_limit]:
         try:
             detail_text = _fetch_text(link)
-            items.append(_build_item_from_detail(source, link, detail_text))
+            item = _build_item_from_detail(source, link, detail_text)
+            if item:
+                items.append(item)
         except Exception as exc:
             parse_errors.append(f"{link}: {type(exc).__name__}")
 
@@ -479,6 +929,10 @@ def _collect_avito_official_items(source: ParserSource) -> list[ParserIngestItem
                     pass
 
             analysis_text = _normalize_text(" ".join([title, address or "", category_name, status]))
+            address_district, address_street = _extract_address_parts(analysis_text, address)
+            listing_type = _detect_listing_type(analysis_text, raw_url)
+            contact_phone = _extract_phone_from_payload(item_payload)
+            image_url = _extract_image_from_payload(item_payload, base_url=raw_url)
             items.append(
                 ParserIngestItem(
                     source_channel=SourceChannel.avito,
@@ -486,13 +940,17 @@ def _collect_avito_official_items(source: ParserSource) -> list[ParserIngestItem
                     raw_url=raw_url,
                     title=title[:255],
                     description=analysis_text[:4000] or title[:255],
+                    listing_type=listing_type,
+                    image_url=image_url,
                     normalized_address=address,
+                    address_district=address_district,
+                    address_street=address_street,
                     city=source.city,
                     region_code=source.region_code,
                     area_sqm=None,
                     price_rub=price_rub,
                     contact_name=source.name,
-                    contact_phone=None,
+                    contact_phone=contact_phone,
                     contact_email=None,
                     intent=_detect_intent(analysis_text),
                     payload=item_payload,
@@ -820,8 +1278,11 @@ def _build_telegram_item(
     message_url: str,
     source_external_id: str,
     channel_name: str,
+    image_url: str | None,
     payload: dict[str, Any],
 ) -> ParserIngestItem:
+    address_district, address_street = _extract_address_parts(text, _extract_first(ADDRESS_RE, text))
+    listing_type = _detect_listing_type(text, message_url)
     return ParserIngestItem(
         source_channel=SourceChannel.telegram,
         source_external_id=source_external_id,
@@ -829,7 +1290,11 @@ def _build_telegram_item(
         telegram_post_url=message_url,
         title=text[:120],
         description=text[:4000],
+        listing_type=listing_type,
+        image_url=image_url,
         normalized_address=_extract_first(ADDRESS_RE, text),
+        address_district=address_district,
+        address_street=address_street,
         city=source.city,
         region_code=source.region_code,
         area_sqm=_extract_area(text),
@@ -840,6 +1305,26 @@ def _build_telegram_item(
         intent=_detect_intent(text),
         payload=payload,
     )
+
+
+def _extract_telegram_image_url(message_node: BeautifulSoup, fallback_base: str) -> str | None:
+    photo_node = message_node.select_one(".tgme_widget_message_photo_wrap, .tgme_widget_message_photo")
+    if photo_node is None:
+        return None
+    style = (photo_node.get("style") or "").strip()
+    if style:
+        match = TELEGRAM_BG_IMAGE_RE.search(style)
+        if match:
+            return urljoin(fallback_base, match.group(1))
+    data_src = (photo_node.get("data-src") or "").strip()
+    if data_src:
+        return urljoin(fallback_base, data_src)
+    img = photo_node.select_one("img[src]")
+    if img is not None:
+        src = (img.get("src") or "").strip()
+        if src:
+            return urljoin(fallback_base, src)
+    return None
 
 
 def _collect_telegram_items(source: ParserSource) -> list[ParserIngestItem]:
@@ -860,6 +1345,7 @@ def _collect_telegram_items(source: ParserSource) -> list[ParserIngestItem]:
         message_url = date_link.get("href") if date_link else source_url
         text_node = message.select_one(".tgme_widget_message_text")
         text = _normalize_text(text_node.get_text(" ", strip=True) if text_node else "")
+        image_url = _extract_telegram_image_url(message, source_url)
         if not text:
             continue
         if not _passes_telegram_filters(text, source):
@@ -871,6 +1357,7 @@ def _collect_telegram_items(source: ParserSource) -> list[ParserIngestItem]:
                 message_url=message_url,
                 source_external_id=external_id or _extract_external_id(message_url, text),
                 channel_name=source.name,
+                image_url=image_url,
                 payload={"source_name": source.name, "source_url": source_url, "parser": "telegram_channel"},
             )
         )
@@ -1070,6 +1557,7 @@ async def _collect_telegram_api_search_items_async(source: ParserSource) -> list
                     message_url=message_url,
                     source_external_id=external_id,
                     channel_name=f"@{username}",
+                    image_url=None,
                     payload={
                         "source_name": source.name,
                         "source_url": source.source_url,
@@ -1156,10 +1644,37 @@ def _collect_rss_items(source: ParserSource) -> list[ParserIngestItem]:
     for node in root.findall(".//item")[:max_items]:
         title = _normalize_text(node.findtext("title") or "")
         link = _normalize_text(node.findtext("link") or source.source_url)
-        description = _normalize_text(node.findtext("description") or node.findtext("content") or "")
+        raw_description = node.findtext("description") or node.findtext("content") or ""
+        description = _normalize_text(raw_description)
         text = " ".join([title, description])
         if not title:
             continue
+        image_url: str | None = None
+        enclosure = node.find("enclosure")
+        if enclosure is not None:
+            image_url = _normalize_text(enclosure.get("url") or "") or None
+        if not image_url:
+            for media_tag in (
+                "{http://search.yahoo.com/mrss/}content",
+                "{http://search.yahoo.com/mrss/}thumbnail",
+            ):
+                media_node = node.find(media_tag)
+                if media_node is not None:
+                    image_url = _normalize_text(media_node.get("url") or "") or None
+                    if image_url:
+                        break
+        if not image_url and raw_description and "<" in raw_description:
+            try:
+                soup = BeautifulSoup(raw_description, "html.parser")
+                image_url = _extract_image_url(soup, link)
+                if soup.get_text(" ", strip=True):
+                    description = _normalize_text(soup.get_text(" ", strip=True))
+                    text = " ".join([title, description])
+            except Exception:
+                pass
+        normalized_address = _extract_first(ADDRESS_RE, text)
+        address_district, address_street = _extract_address_parts(text, normalized_address)
+        listing_type = _detect_listing_type(text, link)
         items.append(
             ParserIngestItem(
                 source_channel=source.source_channel,
@@ -1167,7 +1682,11 @@ def _collect_rss_items(source: ParserSource) -> list[ParserIngestItem]:
                 raw_url=link,
                 title=title[:255],
                 description=description[:4000],
-                normalized_address=_extract_first(ADDRESS_RE, text),
+                listing_type=listing_type,
+                image_url=image_url,
+                normalized_address=normalized_address,
+                address_district=address_district,
+                address_street=address_street,
                 city=source.city,
                 region_code=source.region_code,
                 area_sqm=_extract_area(text),
@@ -1215,6 +1734,12 @@ def _collect_json_api_items(source: ParserSource) -> list[ParserIngestItem]:
             continue
         explicit_price = _to_float(record.get("price"))
         explicit_area = _to_float(record.get("area") or record.get("area_sqm"))
+        normalized_address = _normalize_text(str(record.get("address") or "")) or _extract_first(ADDRESS_RE, text)
+        address_district, address_street = _extract_address_parts(text, normalized_address)
+        listing_type = _detect_listing_type(text, raw_url)
+        contact_phone = _normalize_text(str(record.get("phone") or record.get("contact_phone") or ""))
+        if not contact_phone:
+            contact_phone = _extract_phone_from_payload(record) or _extract_first(PHONE_RE, text) or ""
         parsed.append(
             ParserIngestItem(
                 source_channel=source.source_channel,
@@ -1222,14 +1747,17 @@ def _collect_json_api_items(source: ParserSource) -> list[ParserIngestItem]:
                 raw_url=raw_url,
                 title=title[:255],
                 description=description[:4000],
-                normalized_address=_normalize_text(str(record.get("address") or "")) or _extract_first(ADDRESS_RE, text),
+                listing_type=listing_type,
+                image_url=_extract_image_from_payload(record, base_url=raw_url),
+                normalized_address=normalized_address,
+                address_district=address_district,
+                address_street=address_street,
                 city=_normalize_text(str(record.get("city") or source.city or "")) or source.city,
                 region_code=_normalize_text(str(record.get("region_code") or source.region_code or "")) or source.region_code,
                 area_sqm=explicit_area if explicit_area is not None else _extract_area(text),
                 price_rub=explicit_price if explicit_price is not None else _extract_price(text),
                 contact_name=_normalize_text(str(record.get("contact_name") or source.name)),
-                contact_phone=_normalize_text(str(record.get("phone") or record.get("contact_phone") or ""))
-                or _extract_first(PHONE_RE, text),
+                contact_phone=contact_phone or None,
                 contact_email=_normalize_text(str(record.get("email") or record.get("contact_email") or ""))
                 or _extract_first(EMAIL_RE, text),
                 intent=_detect_intent(text),
@@ -1251,6 +1779,12 @@ def collect_items_for_source(source: ParserSource) -> list[ParserIngestItem]:
         if mode == "telegram_api_search":
             return _collect_telegram_api_search_items(source)
         return _collect_telegram_items(source)
-    if source.source_channel in (SourceChannel.avito, SourceChannel.cian, SourceChannel.domclick):
+    if source.source_channel in (
+        SourceChannel.avito,
+        SourceChannel.cian,
+        SourceChannel.domclick,
+        SourceChannel.yandex,
+        SourceChannel.bankrupt,
+    ):
         return _collect_marketplace_items(source)
     raise ValueError(f"Source channel '{source.source_channel.value}' is not supported for auto parsing.")

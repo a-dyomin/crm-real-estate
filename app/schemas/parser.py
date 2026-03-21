@@ -13,7 +13,11 @@ class ParserIngestItem(BaseModel):
     telegram_post_url: str | None = None
     title: str = Field(min_length=3, max_length=255)
     description: str | None = None
+    listing_type: str | None = None
+    image_url: str | None = None
     normalized_address: str | None = None
+    address_district: str | None = None
+    address_street: str | None = None
     city: str | None = None
     region_code: str | None = "RU-UDM"
     latitude: float | None = None
@@ -40,7 +44,11 @@ class ParserResultRead(BaseModel):
     telegram_post_url: str | None
     title: str
     description: str | None
+    listing_type: str | None
+    image_url: str | None
     normalized_address: str | None
+    address_district: str | None
+    address_street: str | None
     city: str | None
     region_code: str | None
     area_sqm: float | None

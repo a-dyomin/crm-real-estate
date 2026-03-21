@@ -12,3 +12,4 @@ media/
 dist/
 build/
 *.egg-info/
+artifacts/

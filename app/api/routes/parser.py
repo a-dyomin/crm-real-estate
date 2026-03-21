@@ -200,7 +200,11 @@ def list_parser_results(
             or_(
                 ParserResult.title.ilike(search_pattern),
                 ParserResult.description.ilike(search_pattern),
+                ParserResult.listing_type.ilike(search_pattern),
                 ParserResult.normalized_address.ilike(search_pattern),
+                ParserResult.address_district.ilike(search_pattern),
+                ParserResult.address_street.ilike(search_pattern),
+                ParserResult.city.ilike(search_pattern),
                 ParserResult.contact_name.ilike(search_pattern),
                 ParserResult.contact_phone.ilike(search_pattern),
                 ParserResult.contact_email.ilike(search_pattern),
