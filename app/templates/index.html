@@ -4,9 +4,9 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>FORMA CRM</title>
-    <link rel="stylesheet" href="/static/styles.css" />
+    <link rel="stylesheet" href="/static/styles.css?v=20260322j" />
   </head>
-  <body data-api-prefix="{{ api_prefix }}">
+  <body data-api-prefix="{{ api_prefix }}" data-feature-owner-intelligence="{{ feature_owner_intelligence }}">
     <header class="topbar">
       <div class="brand">
         <img class="brand-logo" src="/static/forma-icon.svg" alt="FORMA" />
@@ -484,6 +484,10 @@
               <div id="ownerDetailOrganizations"></div>
             </div>
             <div class="drawer-section">
+              <h4>Адреса</h4>
+              <div id="ownerDetailAddresses"></div>
+            </div>
+            <div class="drawer-section">
               <h4>Объекты</h4>
               <div id="ownerDetailObjects"></div>
             </div>
@@ -491,14 +495,18 @@
             <h4>История активности</h4>
             <div id="ownerDetailTimeline"></div>
           </div>
-          <div class="drawer-section">
-            <h4>Связанные объявления</h4>
-            <div id="ownerDetailListings"></div>
+            <div class="drawer-section">
+              <h4>Связанные объявления</h4>
+              <div id="ownerDetailListings"></div>
+            </div>
+            <div class="drawer-section">
+              <h4>Доказательства</h4>
+              <div id="ownerDetailEvidence"></div>
+            </div>
           </div>
-        </div>
       </div>
     </div>
 
-    <script src="/static/app.js"></script>
+    <script src="/static/app.js?v=20260322t"></script>
   </body>
 </html>

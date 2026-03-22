@@ -2530,15 +2530,20 @@ def _collect_json_api_items(source: ParserSource) -> list[ParserIngestItem]:
 def collect_items_for_source(source: ParserSource) -> list[ParserIngestItem]:
     mode = str((source.extra_config or {}).get("mode") or "html").lower()
     if mode == "rss":
-        return _collect_rss_items(source)
+        items = _collect_rss_items(source)
+        return _attach_source_context(items, source)
     if mode == "json_api":
-        return _collect_json_api_items(source)
+        items = _collect_json_api_items(source)
+        return _attach_source_context(items, source)
     if source.source_channel == SourceChannel.avito and mode in {"avito_official_api", "avito_api"}:
-        return _collect_avito_official_items(source)
+        items = _collect_avito_official_items(source)
+        return _attach_source_context(items, source)
     if source.source_channel == SourceChannel.telegram:
         if mode == "telegram_api_search":
-            return _collect_telegram_api_search_items(source)
-        return _collect_telegram_items(source)
+            items = _collect_telegram_api_search_items(source)
+            return _attach_source_context(items, source)
+        items = _collect_telegram_items(source)
+        return _attach_source_context(items, source)
     if source.source_channel in (
         SourceChannel.avito,
         SourceChannel.cian,
@@ -2547,5 +2552,18 @@ def collect_items_for_source(source: ParserSource) -> list[ParserIngestItem]:
         SourceChannel.bankrupt,
         SourceChannel.web,
     ):
-        return _collect_marketplace_items(source)
+        items = _collect_marketplace_items(source)
+        return _attach_source_context(items, source)
     raise ValueError(f"Source channel '{source.source_channel.value}' is not supported for auto parsing.")
+
+
+def _attach_source_context(items: list[ParserIngestItem], source: ParserSource) -> list[ParserIngestItem]:
+    for item in items:
+        if item.parser_source_id is None:
+            item.parser_source_id = source.id
+        payload = dict(item.payload or {})
+        payload.setdefault("source_id", source.id)
+        payload.setdefault("source_name", source.name)
+        payload.setdefault("source_url", source.source_url)
+        item.payload = payload
+    return items

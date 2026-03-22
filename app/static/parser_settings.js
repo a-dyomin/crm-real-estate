@@ -1,5 +1,40 @@
-const apiPrefix = document.body.dataset.apiPrefix;
-const token = localStorage.getItem("cre_token");
+const apiPrefix = document.body.dataset.apiPrefix || "/api/v1";
+
+function safeLocalStorage() {
+  try {
+    return window.localStorage;
+  } catch (error) {
+    return null;
+  }
+}
+
+function safeSessionStorage() {
+  try {
+    return window.sessionStorage;
+  } catch (error) {
+    return null;
+  }
+}
+
+function getStoredToken() {
+  const local = safeLocalStorage();
+  if (local) {
+    const token = local.getItem("cre_token");
+    if (token) return token;
+  }
+  const session = safeSessionStorage();
+  if (session) return session.getItem("cre_token");
+  return null;
+}
+
+function clearStoredToken() {
+  const local = safeLocalStorage();
+  if (local) local.removeItem("cre_token");
+  const session = safeSessionStorage();
+  if (session) session.removeItem("cre_token");
+}
+
+const token = getStoredToken();
 
 const discoverySeedTypeLabels = {
   domain: "Домен",
@@ -59,8 +94,16 @@ if (!token) {
   window.location.href = "/login";
 }
 
+function coalesce() {
+  for (let i = 0; i < arguments.length; i += 1) {
+    const value = arguments[i];
+    if (value !== null && value !== undefined) return value;
+  }
+  return null;
+}
+
 function escapeHtml(value) {
-  return String(value ?? "")
+  return String(coalesce(value, ""))
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
@@ -71,14 +114,14 @@ function escapeHtml(value) {
 async function api(path, options = {}) {
   const headers = {
     ...(options.headers || {}),
-    Authorization: `Bearer ${localStorage.getItem("cre_token") || ""}`,
+    Authorization: "Bearer " + (getStoredToken() || ""),
   };
   if (!headers["Content-Type"] && options.body && !(options.body instanceof FormData)) {
     headers["Content-Type"] = "application/json";
   }
   const response = await fetch(`${apiPrefix}${path}`, { ...options, headers });
   if (response.status === 401) {
-    localStorage.removeItem("cre_token");
+    clearStoredToken();
     window.location.href = "/login";
     throw new Error("Unauthorized");
   }
@@ -183,15 +226,15 @@ async function loadAutonomySources() {
       <td>${escapeHtml(formatChannel(source.source_channel))}</td>
       <td>${escapeHtml(source.source_state || "-")}</td>
       <td>${escapeHtml(source.health_status || "-")}</td>
-      <td>${escapeHtml(source.parse_priority ?? "-")}</td>
+      <td>${escapeHtml(coalesce(source.parse_priority, "-"))}</td>
       <td>${escapeHtml(formatDateTime(source.next_scheduled_parse_at))}</td>
       <td>${source.auto_discovered ? "auto" : "manual"}</td>
       <td>${escapeHtml(formatDateTime(source.last_success_at))}</td>
       <td>${escapeHtml(source.last_error || "-")}</td>
-      <td>${escapeHtml(source.listings_parsed_last_run ?? "-")}</td>
-      <td>${escapeHtml(source.contacts_extracted_last_run ?? "-")}</td>
-      <td>${escapeHtml(source.contacts_rejected_last_run ?? "-")}</td>
-      <td>${escapeHtml(source.leads_published_last_run ?? "-")}</td>
+      <td>${escapeHtml(coalesce(source.listings_parsed_last_run, "-"))}</td>
+      <td>${escapeHtml(coalesce(source.contacts_extracted_last_run, "-"))}</td>
+      <td>${escapeHtml(coalesce(source.contacts_rejected_last_run, "-"))}</td>
+      <td>${escapeHtml(coalesce(source.leads_published_last_run, "-"))}</td>
     `;
     rows.appendChild(tr);
   }
@@ -234,6 +277,12 @@ async function loadParserRuns() {
       <td>${escapeHtml(run.trigger)}</td>
       <td>${run.fetched_count}</td>
       <td>${run.inserted_count}</td>
+      <td>${escapeHtml(coalesce(run.objects_resolved, "-"))}</td>
+      <td>${escapeHtml(coalesce(run.identities_scored, "-"))}</td>
+      <td>${escapeHtml(coalesce(run.owners_published, "-"))}</td>
+      <td>${escapeHtml(coalesce(run.leads_auto_created, "-"))}</td>
+      <td>${escapeHtml(coalesce(run.call_center_created, "-"))}</td>
+      <td>${escapeHtml(coalesce(run.rejected_count, "-"))}</td>
       <td>${run.error_count}</td>
       <td>${escapeHtml(formatDateTime(run.started_at))}</td>
     `;
@@ -337,7 +386,10 @@ async function createDiscoverySeed(event) {
     value: String(formData.get("value") || "").trim(),
     region: String(formData.get("region") || "").trim() || null,
     priority: Number(formData.get("priority") || 0),
-    enabled: Boolean(form.querySelector("input[name='enabled']")?.checked),
+    enabled: Boolean(
+      form.querySelector("input[name='enabled']") &&
+        form.querySelector("input[name='enabled']").checked
+    ),
   };
   if (!payload.seed_type || !payload.value) return;
   await api("/parser/discovery/seeds", { method: "POST", body: JSON.stringify(payload) });
@@ -390,7 +442,7 @@ async function boot() {
       } catch (error) {
         // ignore logout transport issues
       }
-      localStorage.removeItem("cre_token");
+      clearStoredToken();
       window.location.href = "/login";
     });
   }

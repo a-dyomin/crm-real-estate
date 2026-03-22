@@ -7,6 +7,7 @@ from app.models.enums import ContactIntent, ParserResultStatus, ParserRunStatus,
 
 
 class ParserIngestItem(BaseModel):
+    parser_source_id: int | None = None
     source_channel: SourceChannel
     source_external_id: str | None = None
     raw_url: str | None = None
@@ -43,6 +44,7 @@ class ParserIngestRequest(BaseModel):
 class ParserResultRead(BaseModel):
     id: int
     agency_id: int
+    parser_source_id: int | None
     source_channel: SourceChannel
     source_external_id: str | None
     raw_url: str | None
@@ -77,6 +79,9 @@ class ParserResultRead(BaseModel):
     below_market_flag: bool | None = None
     intent: ContactIntent
     status: ParserResultStatus
+    pipeline_status: str | None = None
+    published_at: datetime | None = None
+    property_id: int | None = None
     duplicate_of_id: int | None
     fingerprint: str | None
     payload: dict[str, Any] | None = None
@@ -183,6 +188,12 @@ class ParserRunRead(BaseModel):
     duplicate_count: int
     possible_duplicate_count: int
     error_count: int
+    objects_resolved: int | None = None
+    identities_scored: int | None = None
+    owners_published: int | None = None
+    leads_auto_created: int | None = None
+    call_center_created: int | None = None
+    rejected_count: int | None = None
     error_message: str | None
     started_at: datetime
     finished_at: datetime | None

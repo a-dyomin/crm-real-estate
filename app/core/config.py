@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     parser_detail_fetch_limit: int = 10
     parser_mirror_fallback_enabled: bool = True
     parser_mirror_base_url: str = "https://r.jina.ai/http://"
+    feature_owner_intelligence: bool = False
     avito_api_base_url: str = "https://api.avito.ru"
     avito_token_url: str = "https://api.avito.ru/token"
     avito_client_id: str = ""
@@ -36,6 +37,10 @@ class Settings(BaseSettings):
     telegram_channel_discovery_limit: int = 10000
     telegram_search_limit_per_query: int = 10000
     telegram_search_days_back: int = 30
+    auto_lead_score_threshold: int = 70
+    auto_lead_owner_threshold: int = 70
+    auto_lead_below_market_enabled: bool = True
+    auto_call_center_enabled: bool = True
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

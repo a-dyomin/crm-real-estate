@@ -13,6 +13,7 @@ from app.models.contact_identity import ContactIdentity
 from app.models.contact_identity_link import ContactIdentityLink
 from app.models.enums import ParserResultStatus
 from app.models.parser_result import ParserResult
+from app.services.graph_features import load_graph_features
 
 OWNER_KEYWORDS = (
     "собственник",
@@ -142,6 +143,7 @@ def _score_contact(
     agent_class_ratio: float,
     platform_class_ratio: float,
     org_count: int,
+    graph_features: dict[str, Any] | None,
 ) -> tuple[float, float, float, dict[str, Any]]:
     owner_score = 50.0
     agent_score = 50.0
@@ -250,6 +252,31 @@ def _score_contact(
         agent_score += 5
         agent_signals.append("несколько организаций")
 
+    graph_signals: list[str] = []
+    if graph_features:
+        linked_objects = float(graph_features.get("linked_object_count") or 0)
+        geo_spread = float(graph_features.get("geographic_spread_score") or 0)
+        single_asset = float(graph_features.get("single_asset_concentration_score") or 0)
+        hub_score = float(graph_features.get("hub_score") or 0)
+        cross_source = float(graph_features.get("cross_source_consistency_score") or 0)
+        cluster_density = float(graph_features.get("cluster_density_score") or 0)
+
+        if linked_objects <= 1 and geo_spread <= 0.3:
+            owner_score += 12
+            graph_signals.append("объекты сконцентрированы")
+        if single_asset >= 0.6:
+            owner_score += 8
+            graph_signals.append("высокая концентрация на одном объекте")
+        if hub_score >= 60:
+            agent_score += 10
+            graph_signals.append("хаб-поведение")
+        if cross_source >= 0.4:
+            agent_score += 8
+            graph_signals.append("кросс-источники по объектам")
+        if cluster_density >= 3:
+            agent_score += 6
+            graph_signals.append("плотный кластер объявлений")
+
     if owner_class_ratio >= 0.5:
         owner_score += 8
         owner_signals.append("контакт помечен как собственник")
@@ -272,6 +299,8 @@ def _score_contact(
     explanation = {
         "owner_signals": owner_signals,
         "agent_signals": agent_signals,
+        "graph_signals": graph_signals,
+        "graph_features": graph_features or {},
     }
     return owner_score, agent_score, platform_score, explanation
 
@@ -359,6 +388,7 @@ def refresh_owner_intelligence(db: Session, agency_id: int) -> int:
     created = 0
     for key, records in groups.items():
         meta = identity_meta.get(key, {})
+        graph_features = load_graph_features(db, agency_id, key)
         total_listings = len(records)
         active_listings = sum(1 for record in records if record.status != ParserResultStatus.rejected)
         object_keys = [_object_key(record) for record in records]
@@ -460,6 +490,7 @@ def refresh_owner_intelligence(db: Session, agency_id: int) -> int:
             agent_class_ratio=agent_class_ratio,
             platform_class_ratio=platform_class_ratio,
             org_count=len(org_counter),
+            graph_features=graph_features,
         )
 
         if platform_score >= 70:
@@ -557,6 +588,7 @@ def refresh_owner_intelligence(db: Session, agency_id: int) -> int:
             owner_priority_score=round(priority_score, 2),
             explanation=explanation,
             organizations=organizations,
+            lifecycle_status="owner_scored",
             total_listings=total_listings,
             active_listings=active_listings,
             unique_objects=unique_objects,

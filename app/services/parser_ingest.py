@@ -33,6 +33,7 @@ def ingest_parser_item(db: Session, agency_id: int, payload: ParserIngestItem) -
     payload_data["owner_probability_score"] = payload_data.get("owner_intel_score") or score.breakdown.owner_probability_score
     result = ParserResult(
         agency_id=agency_id,
+        parser_source_id=payload.parser_source_id,
         source_channel=payload.source_channel,
         source_external_id=payload.source_external_id,
         raw_url=payload.raw_url,
@@ -69,6 +70,7 @@ def ingest_parser_item(db: Session, agency_id: int, payload: ParserIngestItem) -
         below_market_flag=payload_data.get("below_market_flag"),
         intent=payload.intent,
         status=decision.status,
+        pipeline_status="parsed",
         duplicate_of_id=decision.duplicate_of_id,
         fingerprint=decision.fingerprint,
         payload=payload_data,

@@ -55,6 +55,7 @@ from app.services.parser_ingest import ingest_parser_item
 from app.services.parser_orchestrator import run_parser_for_agency
 from app.services.source_discovery import run_source_discovery
 from app.services.owner_intelligence import refresh_owner_intelligence
+from app.services.graph_features import load_contact_graph_details
 
 router = APIRouter(prefix="/parser", tags=["parser"])
 
@@ -502,12 +503,19 @@ def get_owner_contact_detail(
 
     activity = [{"date": date, "count": count} for date, count in sorted(timeline.items(), reverse=True)[:30]]
 
+    contact_key = f"{identity.key_type}:{identity.key_value}"
+    graph_details = load_contact_graph_details(db, current_user.agency_id, contact_key) or {}
+
     return ContactIdentityDetailRead(
         identity=identity,
         listings=listings,
         objects=list(objects.values()),
         activity_timeline=activity,
         explanation=identity.explanation,
+        graph_features=graph_details.get("features"),
+        linked_addresses=graph_details.get("linked_addresses"),
+        linked_organizations=graph_details.get("linked_organizations"),
+        graph_evidence=graph_details.get("evidence"),
     )
 
 
@@ -577,6 +585,7 @@ def list_parser_results(
     updated_from: str | None = Query(default=None, alias="updated_from"),
     updated_to: str | None = Query(default=None, alias="updated_to"),
     duplicates_only: bool = Query(default=False, alias="duplicates_only"),
+    published_only: bool = Query(default=True, alias="published_only"),
     q: str | None = Query(default=None, min_length=1, max_length=200),
     page: int = Query(default=1, ge=1, le=10_000),
     page_size: int = Query(default=20, ge=1, le=100),
@@ -600,6 +609,8 @@ def list_parser_results(
         stmt = stmt.where(ParserResult.listing_type == deal_type)
     if duplicates_only:
         stmt = stmt.where(ParserResult.status.in_([ParserResultStatus.duplicate, ParserResultStatus.possible_duplicate]))
+    if published_only:
+        stmt = stmt.where(ParserResult.pipeline_status == "published")
     if region:
         stmt = stmt.where(or_(ParserResult.region_code == region, ParserResult.city.ilike(f"%{region}%")))
     if updated_from:
@@ -697,6 +708,8 @@ def parser_to_lead(
         parser_result=parser_result,
         title=payload.title,
         owner_user_id=payload.owner_user_id,
+        lead_state="active",
+        auto_created=False,
     )
     write_audit_log(
         db,

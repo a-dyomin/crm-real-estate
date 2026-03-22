@@ -9,6 +9,11 @@ from app.models.job_run import JobRun
 from app.models.lead import Lead
 from app.models.lead_event import LeadEvent
 from app.models.market_benchmark import MarketBenchmark
+from app.models.graph_edge import GraphEdge
+from app.models.graph_edge_evidence import GraphEdgeEvidence
+from app.models.graph_feature_snapshot import GraphFeatureSnapshot
+from app.models.graph_fuzzy_match import GraphFuzzyMatch
+from app.models.graph_node import GraphNode
 from app.models.parser_result import ParserResult
 from app.models.parser_run import ParserRun
 from app.models.parser_source import ParserSource
@@ -54,4 +59,9 @@ __all__ = [
     "SourceStateHistory",
     "SourceFrontier",
     "MarketBenchmark",
+    "GraphNode",
+    "GraphEdge",
+    "GraphEdgeEvidence",
+    "GraphFeatureSnapshot",
+    "GraphFuzzyMatch",
 ]

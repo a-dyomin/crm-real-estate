@@ -1,5 +1,86 @@
-﻿const apiPrefix = document.body.dataset.apiPrefix;
-const token = localStorage.getItem("cre_token");
+const apiPrefix = document.body.dataset.apiPrefix || "/api/v1";
+const featureOwnerIntel = document.body.dataset.featureOwnerIntelligence === "true";
+window.__appScriptLoaded = true;
+window.__bootStage = "loaded";
+window.__appBooted = false;
+
+if (!Object.fromEntries) {
+  Object.fromEntries = function (entries) {
+    const result = {};
+    if (!entries || typeof entries[Symbol.iterator] !== "function") {
+      return result;
+    }
+    for (const pair of entries) {
+      if (!pair || pair.length < 2) continue;
+      result[pair[0]] = pair[1];
+    }
+    return result;
+  };
+}
+
+if (!Array.prototype.includes) {
+  Array.prototype.includes = function (value) {
+    for (let i = 0; i < this.length; i += 1) {
+      if (this[i] === value || (Number.isNaN(this[i]) && Number.isNaN(value))) return true;
+    }
+    return false;
+  };
+}
+
+if (!String.prototype.includes) {
+  String.prototype.includes = function (search, start) {
+    return this.indexOf(search, start || 0) !== -1;
+  };
+}
+if (window.__setBootStatus) {
+  window.__setBootStatus("JS loaded");
+}
+
+function safeLocalStorage() {
+  try {
+    return window.localStorage;
+  } catch (error) {
+    return null;
+  }
+}
+
+function safeSessionStorage() {
+  try {
+    return window.sessionStorage;
+  } catch (error) {
+    return null;
+  }
+}
+
+function getStoredToken() {
+  const local = safeLocalStorage();
+  if (local) {
+    const token = local.getItem("cre_token");
+    if (token) return token;
+  }
+  const session = safeSessionStorage();
+  if (session) return session.getItem("cre_token");
+  return null;
+}
+
+function setStoredToken(value) {
+  const local = safeLocalStorage();
+  if (local) {
+    local.setItem("cre_token", value);
+    return;
+  }
+  const session = safeSessionStorage();
+  if (session) session.setItem("cre_token", value);
+}
+
+function clearStoredToken() {
+  const local = safeLocalStorage();
+  if (local) local.removeItem("cre_token");
+  const session = safeSessionStorage();
+  if (session) session.removeItem("cre_token");
+}
+
+const token = getStoredToken();
 
 const leadStages = [
   ["new_lead", "Новый лид"],
@@ -300,8 +381,22 @@ if (!token) {
   window.location.href = "/login";
 }
 
+if (typeof window.fetch !== "function") {
+  if (window.__setBootStatus) {
+    window.__setBootStatus("JS error: fetch недоступен");
+  }
+}
+
+function coalesce() {
+  for (let i = 0; i < arguments.length; i += 1) {
+    const value = arguments[i];
+    if (value !== null && value !== undefined) return value;
+  }
+  return null;
+}
+
 function escapeHtml(value) {
-  return String(value ?? "")
+  return String(coalesce(value, ""))
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
@@ -310,16 +405,26 @@ function escapeHtml(value) {
 }
 
 async function api(path, options = {}) {
-  const headers = {
-    ...(options.headers || {}),
-    Authorization: `Bearer ${localStorage.getItem("cre_token") || ""}`,
-  };
+  const timeoutMs = typeof options.timeoutMs === "number" ? options.timeoutMs : 15000;
+  const headers = Object.assign({}, options.headers || {});
+  headers.Authorization = "Bearer " + (getStoredToken() || "");
   if (!headers["Content-Type"] && options.body && !(options.body instanceof FormData)) {
     headers["Content-Type"] = "application/json";
   }
-  const response = await fetch(`${apiPrefix}${path}`, { ...options, headers });
+  const fetchPromise = fetch(apiPrefix + path, Object.assign({}, options, { headers }));
+  let response;
+  if (timeoutMs > 0) {
+    response = await Promise.race([
+      fetchPromise,
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error(`Request timeout (${path})`)), timeoutMs)
+      ),
+    ]);
+  } else {
+    response = await fetchPromise;
+  }
   if (response.status === 401) {
-    localStorage.removeItem("cre_token");
+    clearStoredToken();
     window.location.href = "/login";
     throw new Error("Unauthorized");
   }
@@ -345,7 +450,7 @@ function startParserAutoRefresh() {
   if (state.parserAutoRefreshTimer) return;
   state.parserAutoRefreshTimer = setInterval(async () => {
     if (state.currentTab !== "parser") return;
-    if (state.parserResults.quickTab === "owners") {
+    if (state.parserResults.quickTab === "owners" && featureOwnerIntel) {
       await loadOwnerContacts();
     } else {
       await loadParserHub();
@@ -417,7 +522,7 @@ function formatLeadScore(payload) {
 }
 
 function formatLeadTier(payload) {
-  const tier = payload?.monetization_tier;
+  const tier = payload ? payload.monetization_tier : undefined;
   if (tier === "premium") return "Premium";
   if (tier === "archive") return "Archive";
   return "-";
@@ -435,7 +540,7 @@ function getLeadBreakdown(payload) {
 
 function getOwnerIntelScore(payload) {
   if (!payload) return null;
-  const score = payload.owner_probability_score ?? payload.owner_intel_score ?? payload.ownerIntelScore ?? null;
+  const score = coalesce(payload.owner_probability_score, payload.owner_intel_score, payload.ownerIntelScore, null);
   if (typeof score === "number") return score;
   if (payload.owner_intel && typeof payload.owner_intel.score === "number") return payload.owner_intel.score;
   return null;
@@ -458,20 +563,20 @@ function resolvePriority(payload) {
 }
 
 function resolvePriorityReasons(record) {
-  const payload = record?.payload || {};
+  const payload = record && record.payload ? record.payload : {};
   const breakdown = getLeadBreakdown(payload);
   const reasons = [];
-  if (payload.below_market_flag || (breakdown.under_market_score ?? 0) >= 60) reasons.push("ниже рынка");
+  if (payload.below_market_flag || coalesce(breakdown.under_market_score, 0) >= 60) reasons.push("ниже рынка");
   const ownerIntelScore = getOwnerIntelScore(payload);
   if (ownerIntelScore != null && ownerIntelScore >= 60) {
     reasons.push("собственник");
-  } else if ((breakdown.owner_probability_score ?? 0) >= 60) {
+  } else if (coalesce(breakdown.owner_probability_score, 0) >= 60) {
     reasons.push("собственник");
   }
   const freshness = payload.lead_score_freshness_hours;
   if (typeof freshness === "number" && freshness <= 24) reasons.push("новый объект");
-  if ((breakdown.urgency_score ?? 0) >= 60) reasons.push("срочно");
-  if ((breakdown.uniqueness_score ?? 0) >= 70) reasons.push("редкий объект");
+  if (coalesce(breakdown.urgency_score, 0) >= 60) reasons.push("срочно");
+  if (coalesce(breakdown.uniqueness_score, 0) >= 70) reasons.push("редкий объект");
   if (isParserPriceDrop(record) && !reasons.includes("снижена цена")) reasons.push("снижена цена");
   return reasons.slice(0, 3);
 }
@@ -484,9 +589,9 @@ function normalizeText(value) {
 }
 
 function resolvePropertyType(record) {
-  const payload = record?.payload || {};
+  const payload = record && record.payload ? record.payload : {};
   const hint = normalizeText(payload.property_type || payload.propertyType || "");
-  const text = normalizeText(`${record?.title || ""} ${record?.description || ""}`);
+  const text = normalizeText(`${(record && record.title) || ""} ${(record && record.description) || ""}`);
   const merged = `${hint} ${text}`.trim();
   if (merged.includes("склад")) return { key: "warehouse", label: "Склад" };
   if (merged.includes("офис")) return { key: "office", label: "Офис" };
@@ -500,7 +605,7 @@ function resolvePropertyType(record) {
 function resolveOwnerLabel(payload) {
   const breakdown = getLeadBreakdown(payload);
   const ownerIntelScore = getOwnerIntelScore(payload);
-  const score = ownerIntelScore ?? breakdown.owner_probability_score ?? null;
+  const score = coalesce(ownerIntelScore, breakdown.owner_probability_score, null);
   if (score == null) return { label: "Неизвестно", key: "unknown" };
   if (score >= 65) return { label: "Собственник", key: "owner" };
   if (score <= 35) return { label: "Агент", key: "agent" };
@@ -709,7 +814,9 @@ function cloneJson(value) {
 }
 
 function canEditLead() {
-  return ["admin", "call_center", "sales", "manager"].includes(state.user?.role || "");
+  return ["admin", "call_center", "sales", "manager"].includes(
+    state.user && state.user.role ? state.user.role : ""
+  );
 }
 
 function setFieldError(input, hasError) {
@@ -892,11 +999,12 @@ function resetParserFilters() {
 }
 
 function setParserQuickTab(tab) {
-  state.parserResults.quickTab = tab;
+  const nextTab = tab === "owners" && !featureOwnerIntel ? "all" : tab;
+  state.parserResults.quickTab = nextTab;
   document.querySelectorAll(".parser-tab").forEach((btn) => {
-    btn.classList.toggle("active", btn.dataset.parserTab === tab);
+    btn.classList.toggle("active", btn.dataset.parserTab === nextTab);
   });
-  toggleParserView(tab === "owners");
+  toggleParserView(nextTab === "owners");
 }
 
 function isParserHot(record) {
@@ -915,14 +1023,14 @@ function isParserDuplicate(record) {
 
 function isParserPriceDrop(record) {
   const breakdown = getLeadBreakdown(record.payload);
-  if (record?.payload?.below_market_flag) return true;
-  if ((breakdown.under_market_score ?? 0) >= 65) return true;
+  if (record && record.payload && record.payload.below_market_flag) return true;
+  if (coalesce(breakdown.under_market_score, 0) >= 65) return true;
   const text = normalizeText(`${record.title || ""} ${record.description || ""}`);
   return text.includes("сниж") || text.includes("скид") || text.includes("ниже рынка");
 }
 
 function isParserArchive(record) {
-  return record.payload?.monetization_tier === "archive";
+  return record.payload && record.payload.monetization_tier === "archive";
 }
 
 function applyParserClientFilters(results) {
@@ -1023,22 +1131,26 @@ function fillLeadForm(lead) {
   const sourceDetailsInput = document.getElementById("leadSourceDetailsInput");
   const ownerSelect = document.getElementById("leadOwnerSelect");
 
-  if (titleInput) titleInput.value = lead?.title || "";
-  if (phoneInput) phoneInput.value = formatRussianPhone(lead?.contact_phone || "");
-  if (sourceDetailsInput) sourceDetailsInput.value = lead?.source_details || "";
+  if (titleInput) titleInput.value = (lead && lead.title) || "";
+  if (phoneInput) phoneInput.value = formatRussianPhone((lead && lead.contact_phone) || "");
+  if (sourceDetailsInput) sourceDetailsInput.value = (lead && lead.source_details) || "";
 
-  setSelectValue(sourceSelect, lead?.lead_source);
-  setSelectValue(needSelect, lead?.need_type);
-  setSelectValue(addressSelect, lead?.object_address);
-  setSelectValue(propertyTypeSelect, lead?.property_type);
-  setSelectValue(areaRangeSelect, lead?.area_range);
-  setSelectValue(activitySelect, lead?.business_activity);
-  setSelectValue(urgencySelect, lead?.urgency);
-  const districtValue = Array.isArray(lead?.search_districts) ? lead.search_districts[0] : lead?.search_districts;
+  setSelectValue(sourceSelect, lead ? lead.lead_source : undefined);
+  setSelectValue(needSelect, lead ? lead.need_type : undefined);
+  setSelectValue(addressSelect, lead ? lead.object_address : undefined);
+  setSelectValue(propertyTypeSelect, lead ? lead.property_type : undefined);
+  setSelectValue(areaRangeSelect, lead ? lead.area_range : undefined);
+  setSelectValue(activitySelect, lead ? lead.business_activity : undefined);
+  setSelectValue(urgencySelect, lead ? lead.urgency : undefined);
+  const districtValue = Array.isArray(lead && lead.search_districts)
+    ? lead.search_districts[0]
+    : lead
+      ? lead.search_districts
+      : undefined;
   setSelectValue(districtSelect, districtValue);
 
   if (ownerSelect instanceof HTMLSelectElement) {
-    ownerSelect.value = lead?.owner_user_id ? String(lead.owner_user_id) : "";
+    ownerSelect.value = lead && lead.owner_user_id ? String(lead.owner_user_id) : "";
   }
 
   if (titleInput) setFieldError(titleInput, false);
@@ -1060,8 +1172,8 @@ function readLeadForm() {
 
   const districtValue = getSelectValue(districtSelect);
   const payload = {
-    title: titleInput?.value.trim() || "",
-    contact_phone: phoneInput?.value.trim() || null,
+    title: titleInput ? titleInput.value.trim() : "",
+    contact_phone: phoneInput ? phoneInput.value.trim() : null,
     lead_source: getSelectValue(sourceSelect),
     need_type: getSelectValue(needSelect),
     search_districts: districtValue ? [districtValue] : null,
@@ -1070,8 +1182,8 @@ function readLeadForm() {
     area_range: getSelectValue(areaRangeSelect),
     business_activity: getSelectValue(activitySelect),
     urgency: getSelectValue(urgencySelect),
-    source_details: sourceDetailsInput?.value.trim() || null,
-    owner_user_id: ownerSelect?.value ? Number(ownerSelect.value) : null,
+    source_details: sourceDetailsInput ? sourceDetailsInput.value.trim() : null,
+    owner_user_id: ownerSelect && ownerSelect.value ? Number(ownerSelect.value) : null,
   };
 
   if (Number.isNaN(payload.owner_user_id)) payload.owner_user_id = null;
@@ -1235,7 +1347,7 @@ async function saveLeadCard() {
   const payload = readLeadForm();
   if (!payload.title) {
     setFieldError(titleInput, true);
-    titleInput?.focus();
+    if (titleInput) titleInput.focus();
     return;
   }
   setFieldError(titleInput, false);
@@ -1267,7 +1379,7 @@ async function submitLeadComment(event) {
   const lead = state.leadCard.lead;
   if (!lead) return;
   const input = document.getElementById("leadCommentInput");
-  const message = input?.value.trim();
+  const message = input ? input.value.trim() : "";
   if (!message) return;
   try {
     await api(`/leads/${lead.id}/comments`, { method: "POST", body: JSON.stringify({ message }) });
@@ -1290,7 +1402,7 @@ function buildKanban(containerId, items, stages, kind) {
   for (const [statusKey, label] of stages) {
     const col = document.createElement("div");
     col.className = "kanban-col";
-    col.innerHTML = `<h3>${label} (${grouped[statusKey]?.length || 0})</h3>`;
+    col.innerHTML = `<h3>${label} (${(grouped[statusKey] && grouped[statusKey].length) || 0})</h3>`;
     const zone = document.createElement("div");
     zone.className = "kanban-dropzone";
     zone.dataset.kind = kind;
@@ -1403,6 +1515,9 @@ async function loadDealsKanban() {
 async function loadParserHub(options = {}) {
   if (options.resetPage) {
     state.parserResults.page = 1;
+  }
+  if (state.parserResults.quickTab === "owners" && !featureOwnerIntel) {
+    state.parserResults.quickTab = "all";
   }
   if (typeof options.query === "string") {
     state.parserResults.query = options.query.trim();
@@ -1517,8 +1632,9 @@ async function loadParserHub(options = {}) {
 function toggleParserView(ownerView) {
   const listingSection = document.getElementById("parserListingSection");
   const ownerSection = document.getElementById("parserOwnerSection");
-  if (listingSection) listingSection.style.display = ownerView ? "none" : "block";
-  if (ownerSection) ownerSection.style.display = ownerView ? "block" : "none";
+  const showOwners = Boolean(ownerView && featureOwnerIntel);
+  if (listingSection) listingSection.style.display = showOwners ? "none" : "block";
+  if (ownerSection) ownerSection.style.display = showOwners ? "block" : "none";
 }
 
 function readOwnerFiltersFromForm() {
@@ -1528,11 +1644,11 @@ function readOwnerFiltersFromForm() {
   const onlyNew = document.getElementById("ownerOnlyNew");
   const onlyLow = document.getElementById("ownerOnlyLowCompetition");
   state.ownerIntel.filters = {
-    query: queryInput?.value?.trim() || "",
-    onlyHigh: Boolean(onlyHigh?.checked),
-    onlySingle: Boolean(onlySingle?.checked),
-    onlyNew: Boolean(onlyNew?.checked),
-    onlyLowCompetition: Boolean(onlyLow?.checked),
+    query: queryInput && queryInput.value ? queryInput.value.trim() : "",
+    onlyHigh: Boolean(onlyHigh && onlyHigh.checked),
+    onlySingle: Boolean(onlySingle && onlySingle.checked),
+    onlyNew: Boolean(onlyNew && onlyNew.checked),
+    onlyLowCompetition: Boolean(onlyLow && onlyLow.checked),
   };
 }
 
@@ -1581,27 +1697,33 @@ function buildOwnerExplanation(explanation) {
   if (!explanation) return "<span class=\"muted\">-</span>";
   const ownerSignals = explanation.owner_signals || [];
   const agentSignals = explanation.agent_signals || [];
-  const chips = [...ownerSignals.slice(0, 2), ...agentSignals.slice(0, 2)]
+  const graphSignals = explanation.graph_signals || [];
+  const chips = [...ownerSignals.slice(0, 2), ...graphSignals.slice(0, 2), ...agentSignals.slice(0, 2)]
     .map((signal) => `<span class="owner-badge">${escapeHtml(signal)}</span>`)
     .join("");
   return chips || "<span class=\"muted\">-</span>";
 }
 
 async function loadOwnerContacts() {
+  if (!featureOwnerIntel) {
+    toggleParserView(false);
+    return;
+  }
   toggleParserView(true);
   readOwnerFiltersFromForm();
-  const params = new URLSearchParams();
-  if (state.ownerIntel.filters.onlyHigh) params.set("min_owner_score", "70");
-  if (state.ownerIntel.filters.onlySingle) params.set("only_single_listing", "true");
-  if (state.ownerIntel.filters.onlyNew) params.set("only_new_days", "7");
-  if (state.ownerIntel.filters.onlyLowCompetition) params.set("only_low_competition", "true");
-  params.set("limit", "200");
-  const items = await api(`/parser/owner-contacts?${params.toString()}`);
-  const filtered = filterOwnerItems(items || []);
-  state.ownerIntel.items = filtered;
   const rows = document.getElementById("ownerRows");
   if (!rows) return;
   rows.innerHTML = "";
+  try {
+    const params = new URLSearchParams();
+    if (state.ownerIntel.filters.onlyHigh) params.set("min_owner_score", "70");
+    if (state.ownerIntel.filters.onlySingle) params.set("only_single_listing", "true");
+    if (state.ownerIntel.filters.onlyNew) params.set("only_new_days", "7");
+    if (state.ownerIntel.filters.onlyLowCompetition) params.set("only_low_competition", "true");
+    params.set("limit", "200");
+    const items = await api(`/parser/owner-contacts?${params.toString()}`);
+    const filtered = filterOwnerItems(items || []);
+    state.ownerIntel.items = filtered;
     for (const item of filtered) {
       const tr = document.createElement("tr");
       const contact = item.display_value || item.key_value;
@@ -1628,12 +1750,25 @@ async function loadOwnerContacts() {
         </button>
       </td>
     `;
-    rows.appendChild(tr);
+      rows.appendChild(tr);
+    }
+    if (!filtered.length) {
+      rows.innerHTML = `<tr><td colspan="8" class="muted">Нет данных</td></tr>`;
+    }
+  } catch (error) {
+    rows.innerHTML = `<tr><td colspan="8" class="muted">Ошибка загрузки</td></tr>`;
   }
 }
 
 async function openOwnerDetail(contactId) {
-  const data = await api(`/parser/owner-contacts/${contactId}`);
+  if (!featureOwnerIntel) return;
+  if (!contactId) return;
+  let data;
+  try {
+    data = await api(`/parser/owner-contacts/${contactId}`);
+  } catch (error) {
+    return;
+  }
   const identity = data.identity;
   const main = document.getElementById("ownerDetailMain");
     if (main) {
@@ -1656,12 +1791,18 @@ async function openOwnerDetail(contactId) {
   }
   const explanation = document.getElementById("ownerDetailExplanation");
   if (explanation) {
-    const ownerSignals = data.explanation?.owner_signals || [];
-    const agentSignals = data.explanation?.agent_signals || [];
-    const summary = data.explanation?.summary || "";
-    const priorityReasons = data.explanation?.priority_reasons || [];
+    const ownerSignals =
+      data.explanation && data.explanation.owner_signals ? data.explanation.owner_signals : [];
+    const agentSignals =
+      data.explanation && data.explanation.agent_signals ? data.explanation.agent_signals : [];
+    const graphSignals =
+      data.explanation && data.explanation.graph_signals ? data.explanation.graph_signals : [];
+    const summary = data.explanation && data.explanation.summary ? data.explanation.summary : "";
+    const priorityReasons =
+      data.explanation && data.explanation.priority_reasons ? data.explanation.priority_reasons : [];
     explanation.innerHTML = `
       <div class="owner-explanation">${ownerSignals.map((s) => `<span class="owner-badge">${escapeHtml(s)}</span>`).join("")}</div>
+      <div class="owner-explanation">${graphSignals.map((s) => `<span class="owner-badge">${escapeHtml(s)}</span>`).join("")}</div>
       <div class="owner-explanation">${agentSignals.map((s) => `<span class="owner-badge">${escapeHtml(s)}</span>`).join("")}</div>
       <div class="owner-explanation">${priorityReasons
         .map((s) => `<span class="owner-badge">${escapeHtml(s)}</span>`)
@@ -1671,15 +1812,21 @@ async function openOwnerDetail(contactId) {
   }
   const behavior = document.getElementById("ownerDetailBehavior");
   if (behavior) {
-    const metrics = data.explanation?.behavior || {};
+    const metrics = data.explanation && data.explanation.behavior ? data.explanation.behavior : {};
+    const graphMetrics =
+      data.graph_features || (data.explanation && data.explanation.graph_features ? data.explanation.graph_features : {});
     const rows = [
       ["Период активности", metrics.span_days ? `${metrics.span_days} дн.` : "-"],
-      ["Частота (мес.)", metrics.posting_frequency_per_month ?? "-"],
-      ["Репосты", metrics.repost_rate ?? "-"],
-      ["Повтор объектов", metrics.object_reuse_rate ?? "-"],
-      ["Кросс-источники", metrics.cross_source_dup_rate ?? "-"],
-      ["Шаблонность", metrics.template_ratio ?? "-"],
-      ["Гео кластер", metrics.geo_cluster_ratio ?? "-"],
+      ["Частота (мес.)", coalesce(metrics.posting_frequency_per_month, "-")],
+      ["Репосты", coalesce(metrics.repost_rate, "-")],
+      ["Повтор объектов", coalesce(metrics.object_reuse_rate, "-")],
+      ["Кросс-источники", coalesce(metrics.cross_source_dup_rate, "-")],
+      ["Шаблонность", coalesce(metrics.template_ratio, "-")],
+      ["Гео кластер", coalesce(metrics.geo_cluster_ratio, "-")],
+      ["Хаб-оценка", coalesce(graphMetrics.hub_score, "-")],
+      ["Гео-спред", coalesce(graphMetrics.geographic_spread_score, "-")],
+      ["Концентрация", coalesce(graphMetrics.single_asset_concentration_score, "-")],
+      ["Плотность", coalesce(graphMetrics.cluster_density_score, "-")],
     ];
     behavior.innerHTML =
       rows
@@ -1692,10 +1839,29 @@ async function openOwnerDetail(contactId) {
   }
   const organizations = document.getElementById("ownerDetailOrganizations");
   if (organizations) {
-    const orgs = data.identity?.organizations || data.explanation?.organization_signals?.organizations || [];
+    const orgs =
+      data.linked_organizations ||
+      (data.identity ? data.identity.organizations : null) ||
+      (data.explanation && data.explanation.organization_signals
+        ? data.explanation.organization_signals.organizations
+        : null) ||
+      [];
     organizations.innerHTML = orgs.length
       ? `<div class="owner-badges">${orgs
-          .map((org) => `<span class="owner-badge">${escapeHtml(org)}</span>`)
+          .map((org) =>
+            typeof org === "string" ? `<span class="owner-badge">${escapeHtml(org)}</span>` : `<span class="owner-badge">${escapeHtml(org.label || org.entity_id || "")}</span>`
+          )
+          .join("")}</div>`
+      : "<span class=\"muted\">Нет данных</span>";
+  }
+  const addresses = document.getElementById("ownerDetailAddresses");
+  if (addresses) {
+    const items = data.linked_addresses || [];
+    addresses.innerHTML = items.length
+      ? `<div class="owner-badges">${items
+          .map((addr) =>
+            typeof addr === "string" ? `<span class="owner-badge">${escapeHtml(addr)}</span>` : `<span class="owner-badge">${escapeHtml(addr.label || addr.entity_id || "")}</span>`
+          )
           .join("")}</div>`
       : "<span class=\"muted\">Нет данных</span>";
   }
@@ -1719,6 +1885,20 @@ async function openOwnerDetail(contactId) {
   }
   const drawer = document.getElementById("ownerDetailDrawer");
   if (drawer) drawer.classList.add("active");
+  const evidence = document.getElementById("ownerDetailEvidence");
+  if (evidence) {
+    const rows = data.graph_evidence || [];
+    evidence.innerHTML = rows.length
+      ? rows
+          .map(
+            (row) =>
+              `<div class="drawer-list"><div>${escapeHtml(
+                row.description || row.evidence_type || "-"
+              )}</div><div class="muted">${escapeHtml(row.observed_at || "")}</div></div>`
+          )
+          .join("")
+      : '<span class="muted">Нет данных</span>';
+  }
 }
 
 function closeOwnerDetail() {
@@ -2010,7 +2190,9 @@ async function loadParserSources() {
   state.parserSources = sources;
   const rows = document.getElementById("sourceRows");
   rows.innerHTML = "";
-  const canManageSources = ["admin", "manager"].includes(state.user?.role || "");
+  const canManageSources = ["admin", "manager"].includes(
+    state.user && state.user.role ? state.user.role : ""
+  );
   for (const source of sources) {
     const mode = source.extra_config && source.extra_config.mode ? String(source.extra_config.mode) : "html";
     const actionCell = canManageSources
@@ -2074,7 +2256,7 @@ async function loadCalls() {
       <td>${escapeHtml(call.from_number || "-")}</td>
       <td>${escapeHtml(call.to_number || "-")}</td>
       <td>${escapeHtml(call.status)}</td>
-      <td>${call.duration_sec ?? "-"}</td>
+      <td>${coalesce(call.duration_sec, "-")}</td>
       <td>${recordingUrl ? `<audio controls preload="none" src="${escapeHtml(recordingUrl)}"></audio>` : "-"}</td>
       <td>${transcriptDetails}</td>
       <td class="actions">
@@ -2092,7 +2274,7 @@ async function loadDiscoverySeeds() {
   const seeds = await api("/parser/discovery/seeds");
   state.discoverySeeds = seeds;
   rows.innerHTML = "";
-  const canManage = ["admin", "manager"].includes(state.user?.role || "");
+  const canManage = ["admin", "manager"].includes(state.user && state.user.role ? state.user.role : "");
   for (const seed of seeds) {
     const actionCell = canManage
       ? `<button data-seed-id="${seed.id}" data-seed-enabled="${String(!seed.enabled)}" class="secondary">
@@ -2169,7 +2351,7 @@ async function loadDiscoveredSources() {
 }
 
 async function loadDiscoveryHub() {
-  if (state.user?.role !== "admin") return;
+  if (!state.user || state.user.role !== "admin") return;
   await Promise.all([loadDiscoverySeeds(), loadDiscoveryRuns(), loadDiscoveredSources()]);
 }
 
@@ -2231,7 +2413,7 @@ async function loadAutonomySources() {
       <td>${escapeHtml(formatChannel(source.source_channel))}</td>
       <td>${escapeHtml(source.source_state || "-")}</td>
       <td>${escapeHtml(source.health_status || "-")}</td>
-      <td>${escapeHtml(source.parse_priority ?? "-")}</td>
+      <td>${escapeHtml(coalesce(source.parse_priority, "-"))}</td>
       <td>${escapeHtml(formatDateTime(source.next_scheduled_parse_at))}</td>
       <td>${source.auto_discovered ? "auto" : "manual"}</td>
     `;
@@ -2240,7 +2422,7 @@ async function loadAutonomySources() {
 }
 
 async function loadAutonomyHub() {
-  if (state.user?.role !== "admin") return;
+  if (!state.user || state.user.role !== "admin") return;
   await Promise.all([loadAutonomySummary(), loadJobRuns(), loadAutonomySources()]);
 }
 
@@ -2264,7 +2446,10 @@ async function createDiscoverySeed(event) {
     value: String(formData.get("value") || "").trim(),
     region: String(formData.get("region") || "").trim() || null,
     priority: Number(formData.get("priority") || 0),
-    enabled: Boolean(form.querySelector("input[name='enabled']")?.checked),
+    enabled: Boolean(
+      form.querySelector("input[name='enabled']") &&
+        form.querySelector("input[name='enabled']").checked
+    ),
   };
   if (!payload.seed_type || !payload.value) return;
   await api("/parser/discovery/seeds", { method: "POST", body: JSON.stringify(payload) });
@@ -2316,7 +2501,7 @@ async function onTabChange(tabName) {
   if (tabName === "leads") await loadLeadsKanban();
   if (tabName === "deals") await loadDealsKanban();
   if (tabName === "parser") {
-    if (state.parserResults.quickTab === "owners") {
+    if (state.parserResults.quickTab === "owners" && featureOwnerIntel) {
       await loadOwnerContacts();
     } else {
       await loadParserHub();
@@ -2327,9 +2512,28 @@ async function onTabChange(tabName) {
 }
 
 async function boot() {
-  const me = await api("/auth/me");
+  window.__bootStage = "auth_start";
+  if (window.__setBootStatus) {
+    window.__setBootStatus("Boot: auth");
+  }
+  const me = await api("/auth/me", { timeoutMs: 8000 });
   state.user = me.user;
+  window.__bootStage = "auth_ok";
   document.getElementById("currentUserInfo").textContent = `${me.user.full_name} (${me.user.role})`;
+
+  if (window.__setBootStatus) {
+    window.__setBootStatus("Boot: ui");
+  }
+  window.__bootStage = "ui_bind";
+
+  const ownerTabBtn = document.querySelector('.parser-tab[data-parser-tab="owners"]');
+  if (ownerTabBtn instanceof HTMLElement) {
+    ownerTabBtn.style.display = featureOwnerIntel ? "inline-flex" : "none";
+  }
+  if (!featureOwnerIntel) {
+    state.parserResults.quickTab = "all";
+    toggleParserView(false);
+  }
 
   if (me.user.role !== "admin") {
     const usersTab = document.getElementById("usersTabBtn");
@@ -2372,7 +2576,7 @@ async function boot() {
     } catch (error) {
       // ignore logout transport issues
     }
-    localStorage.removeItem("cre_token");
+    clearStoredToken();
     window.location.href = "/login";
   });
 
@@ -2383,7 +2587,7 @@ async function boot() {
   const refreshParserBtn = document.getElementById("refreshParserHubBtn");
   if (refreshParserBtn) {
     refreshParserBtn.addEventListener("click", async () => {
-      if (state.parserResults.quickTab === "owners") {
+      if (state.parserResults.quickTab === "owners" && featureOwnerIntel) {
         await loadOwnerContacts();
       } else {
         await loadParserHub();
@@ -2517,6 +2721,7 @@ async function boot() {
   const ownerRows = document.getElementById("ownerRows");
   if (ownerRows) {
     ownerRows.addEventListener("click", async (event) => {
+      if (!featureOwnerIntel) return;
       const target = event.target;
       if (!(target instanceof Element)) return;
       const button = target.closest("button");
@@ -2569,6 +2774,7 @@ async function boot() {
       if (!(target instanceof HTMLButtonElement)) return;
       const tab = target.dataset.parserTab;
       if (!tab) return;
+      if (tab === "owners" && !featureOwnerIntel) return;
       setParserQuickTab(tab);
       if (tab === "owners") {
         await loadOwnerContacts();
@@ -2658,9 +2864,20 @@ async function boot() {
   const params = new URLSearchParams(window.location.search);
   const initialTab = params.get("tab");
   const hasTab = initialTab && document.querySelector(`.tab-btn[data-tab="${initialTab}"]`);
-  await onTabChange(hasTab ? initialTab : "home");
+  onTabChange(hasTab ? initialTab : "home").catch(() => {});
+  window.__bootStage = "boot_done";
 }
 
-boot().catch((error) => {
-  alert(`Application boot error: ${error.message}`);
-});
+boot()
+  .then(() => {
+    window.__appBooted = true;
+    if (window.__setBootStatus) {
+      window.__setBootStatus("JS: ok", true);
+    }
+  })
+  .catch((error) => {
+    if (window.__setBootStatus) {
+      window.__setBootStatus(`JS error: ${error.message || "boot failed"}`);
+    }
+    alert(`Application boot error: ${error.message}`);
+  });

@@ -67,6 +67,8 @@ class LeadRead(BaseModel):
     source_channel: SourceChannel
     source_record_id: str | None
     lead_source: str | None
+    lead_state: str | None = None
+    auto_created: bool | None = None
     need_type: str | None
     search_districts: list[str] | None
     object_address: str | None

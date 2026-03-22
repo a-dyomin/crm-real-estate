@@ -56,6 +56,8 @@ def apply_runtime_migrations(engine: Engine) -> None:
     _normalize_legacy_lead_statuses(engine)
     if _sqlite_table_exists(engine, "leads"):
         _add_column_if_missing(engine, "leads", "lead_source", "VARCHAR(255)")
+        _add_column_if_missing(engine, "leads", "lead_state", "VARCHAR(32)")
+        _add_column_if_missing(engine, "leads", "auto_created", "BOOLEAN DEFAULT 0")
         _add_column_if_missing(engine, "leads", "need_type", "VARCHAR(64)")
         _add_column_if_missing(engine, "leads", "search_districts", "JSON")
         _add_column_if_missing(engine, "leads", "object_address", "VARCHAR(255)")
@@ -66,6 +68,7 @@ def apply_runtime_migrations(engine: Engine) -> None:
         _add_column_if_missing(engine, "leads", "source_details", "TEXT")
 
     if _sqlite_table_exists(engine, "parser_results"):
+        _add_column_if_missing(engine, "parser_results", "parser_source_id", "INTEGER")
         _add_column_if_missing(engine, "parser_results", "telegram_post_url", "VARCHAR(1024)")
         _add_column_if_missing(engine, "parser_results", "listing_type", "VARCHAR(32)")
         _add_column_if_missing(engine, "parser_results", "image_url", "VARCHAR(1024)")
@@ -85,6 +88,9 @@ def apply_runtime_migrations(engine: Engine) -> None:
         _add_column_if_missing(engine, "parser_results", "market_median_price_per_m2", "FLOAT")
         _add_column_if_missing(engine, "parser_results", "deviation_from_market_pct", "FLOAT")
         _add_column_if_missing(engine, "parser_results", "below_market_flag", "BOOLEAN")
+        _add_column_if_missing(engine, "parser_results", "pipeline_status", "VARCHAR(32)")
+        _add_column_if_missing(engine, "parser_results", "published_at", "DATETIME")
+        _add_column_if_missing(engine, "parser_results", "property_id", "INTEGER")
 
     if _sqlite_table_exists(engine, "parser_sources"):
         _add_column_if_missing(engine, "parser_sources", "source_state", "VARCHAR(64)")
@@ -115,3 +121,14 @@ def apply_runtime_migrations(engine: Engine) -> None:
 
     if _sqlite_table_exists(engine, "contact_identities"):
         _add_column_if_missing(engine, "contact_identities", "owner_priority_score", "FLOAT")
+        _add_column_if_missing(engine, "contact_identities", "lifecycle_status", "VARCHAR(32)")
+        _add_column_if_missing(engine, "contact_identities", "published_to_owners_at", "DATETIME")
+        _add_column_if_missing(engine, "contact_identities", "promoted_to_call_center_at", "DATETIME")
+
+    if _sqlite_table_exists(engine, "parser_runs"):
+        _add_column_if_missing(engine, "parser_runs", "objects_resolved", "INTEGER DEFAULT 0")
+        _add_column_if_missing(engine, "parser_runs", "identities_scored", "INTEGER DEFAULT 0")
+        _add_column_if_missing(engine, "parser_runs", "owners_published", "INTEGER DEFAULT 0")
+        _add_column_if_missing(engine, "parser_runs", "leads_auto_created", "INTEGER DEFAULT 0")
+        _add_column_if_missing(engine, "parser_runs", "call_center_created", "INTEGER DEFAULT 0")
+        _add_column_if_missing(engine, "parser_runs", "rejected_count", "INTEGER DEFAULT 0")

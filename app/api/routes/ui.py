@@ -16,7 +16,10 @@ def app_index(request: Request):
     return templates.TemplateResponse(
         request=request,
         name="index.html",
-        context={"api_prefix": settings.api_prefix},
+        context={
+            "api_prefix": settings.api_prefix,
+            "feature_owner_intelligence": str(settings.feature_owner_intelligence).lower(),
+        },
     )
 
 

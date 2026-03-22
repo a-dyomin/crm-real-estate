@@ -20,6 +20,9 @@ class ContactIdentityRead(BaseModel):
     owner_priority_score: float | None = None
     explanation: dict[str, Any] | None
     organizations: list[str] | None
+    lifecycle_status: str | None = None
+    published_to_owners_at: datetime | None = None
+    promoted_to_call_center_at: datetime | None = None
     total_listings: int
     active_listings: int
     unique_objects: int
@@ -54,3 +57,7 @@ class ContactIdentityDetailRead(BaseModel):
     objects: list[dict[str, Any]]
     activity_timeline: list[dict[str, Any]]
     explanation: dict[str, Any] | None
+    graph_features: dict[str, Any] | None = None
+    linked_addresses: list[dict[str, Any]] | None = None
+    linked_organizations: list[dict[str, Any]] | None = None
+    graph_evidence: list[dict[str, Any]] | None = None

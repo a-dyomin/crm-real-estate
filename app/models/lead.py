@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, ForeignKey, JSON, String, Text
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, JSON, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -23,6 +23,8 @@ class Lead(Base):
     source_channel: Mapped[SourceChannel] = mapped_column(Enum(SourceChannel), default=SourceChannel.manual, nullable=False)
     source_record_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     lead_source: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    lead_state: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    auto_created: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     need_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
     search_districts: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     object_address: Mapped[str | None] = mapped_column(String(255), nullable=True)

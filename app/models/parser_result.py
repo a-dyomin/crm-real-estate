@@ -13,6 +13,7 @@ class ParserResult(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     agency_id: Mapped[int] = mapped_column(ForeignKey("agencies.id"), nullable=False, index=True)
+    parser_source_id: Mapped[int | None] = mapped_column(ForeignKey("parser_sources.id"), nullable=True, index=True)
     source_channel: Mapped[SourceChannel] = mapped_column(Enum(SourceChannel), nullable=False, index=True)
     source_external_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     raw_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
@@ -49,6 +50,9 @@ class ParserResult(Base):
     below_market_flag: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     intent: Mapped[ContactIntent] = mapped_column(Enum(ContactIntent), default=ContactIntent.unknown, nullable=False)
     status: Mapped[ParserResultStatus] = mapped_column(Enum(ParserResultStatus), default=ParserResultStatus.new, nullable=False, index=True)
+    pipeline_status: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    property_id: Mapped[int | None] = mapped_column(ForeignKey("properties.id"), nullable=True, index=True)
     duplicate_of_id: Mapped[int | None] = mapped_column(ForeignKey("parser_results.id"), nullable=True, index=True)
     fingerprint: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     payload: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)

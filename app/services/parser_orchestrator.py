@@ -20,7 +20,11 @@ from app.services.parser_collectors import collect_items_for_source
 from app.services.parser_ingest import ingest_parser_item
 from app.services.owner_intelligence import refresh_owner_intelligence
 from app.services.market_benchmarks import recompute_market_benchmarks
+from app.services.graph_builder import build_graph_for_agency
+from app.services.graph_features import refresh_graph_features
+from app.services.fuzzy_matching import refresh_fuzzy_matches
 from app.services.parser_scoring import update_parser_scores
+from app.services.publishing import auto_create_call_center_entries, auto_create_leads, publish_owners, publish_parser_results
 
 
 def _truncate_error(error: Exception) -> str:
@@ -151,8 +155,15 @@ def run_parser_for_agency(
         "contacts_extracted": 0,
         "contacts_rejected": 0,
         "leads_published": 0,
+        "call_center_created": 0,
+        "objects_resolved": 0,
+        "identities_scored": 0,
+        "owners_published": 0,
+        "rejected": 0,
         "listings_parsed": 0,
     }
+
+    source_run_map: dict[int, int] = {}
 
     for source in sources:
         source_id = source.id
@@ -171,6 +182,7 @@ def run_parser_for_agency(
             "contacts_extracted": 0,
             "contacts_rejected": 0,
             "leads_published": 0,
+            "call_center_created": 0,
             "listings_parsed": 0,
         }
         try:
@@ -181,6 +193,7 @@ def run_parser_for_agency(
             )
             db.add(parse_run)
             db.commit()
+            source_run_map[source_id] = parse_run.id
             items: list[ParserIngestItem] = collect_items_for_source(snapshot)
             counters["fetched"] += len(items)
             source_counts["fetched"] = len(items)
@@ -202,13 +215,9 @@ def run_parser_for_agency(
                     counters["inserted"] += 1
                     source_counts["possible_duplicate"] += 1
                     source_counts["inserted"] += 1
-                    counters["leads_published"] += 1
-                    source_counts["leads_published"] += 1
                 else:
                     counters["inserted"] += 1
                     source_counts["inserted"] += 1
-                    counters["leads_published"] += 1
-                    source_counts["leads_published"] += 1
             if source_row:
                 source_row.last_fetch_at = datetime.utcnow()
                 source_row.last_success_at = datetime.utcnow()
@@ -277,15 +286,63 @@ def run_parser_for_agency(
         run_row.error_message = "All sources failed during parser run."
 
     db.commit()
+    identities_scored = 0
+    owners_published = 0
+    publish_counters = None
+    leads_outcome = None
+    call_outcome = None
     try:
-        refresh_owner_intelligence(db, agency_id)
+        build_graph_for_agency(db, agency_id)
+        refresh_graph_features(db, agency_id)
+        identities_scored = refresh_owner_intelligence(db, agency_id)
         recompute_market_benchmarks(db, agency_id)
         update_parser_scores(db, agency_id)
+        refresh_fuzzy_matches(db, agency_id)
+        publish_counters = publish_parser_results(db, agency_id)
+        owners_published = publish_owners(db, agency_id)
+        leads_outcome = auto_create_leads(db, agency_id)
+        call_outcome = auto_create_call_center_entries(
+            db,
+            agency_id,
+            leads=leads_outcome.leads if leads_outcome else None,
+        )
     except Exception as exc:
         if run_row:
             run_row.status = ParserRunStatus.completed_with_errors
             if not run_row.error_message:
                 run_row.error_message = f"Post-processing failed: {type(exc).__name__}"
+            db.commit()
+    else:
+        if publish_counters:
+            counters["objects_resolved"] += publish_counters.objects_resolved
+            counters["rejected"] += publish_counters.rejected
+        if leads_outcome:
+            counters["leads_published"] += leads_outcome.total
+        if call_outcome:
+            counters["call_center_created"] += call_outcome.total
+        counters["identities_scored"] += identities_scored
+        counters["owners_published"] += owners_published
+
+        if leads_outcome:
+            for source in sources:
+                lead_count = leads_outcome.by_source.get(source.id, 0)
+                source_row = db.get(ParserSource, source.id)
+                if source_row:
+                    source_row.leads_published_last_run = lead_count
+                parse_run_id = source_run_map.get(source.id)
+                if parse_run_id:
+                    parse_run = db.get(SourceParseRun, parse_run_id)
+                    if parse_run:
+                        parse_run.leads_published = lead_count
+
+        run_row = db.get(ParserRun, run_id)
+        if run_row:
+            run_row.objects_resolved = counters["objects_resolved"]
+            run_row.identities_scored = counters["identities_scored"]
+            run_row.owners_published = counters["owners_published"]
+            run_row.leads_auto_created = counters["leads_published"]
+            run_row.call_center_created = counters["call_center_created"]
+            run_row.rejected_count = counters["rejected"]
             db.commit()
     db.refresh(run_row)
     return run_row

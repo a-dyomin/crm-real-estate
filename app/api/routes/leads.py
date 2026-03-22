@@ -94,7 +94,10 @@ def list_leads(current_user: User = Depends(get_current_user), db: Session = Dep
     dependencies=[Depends(require_roles(UserRole.admin, UserRole.call_center, UserRole.sales, UserRole.manager))],
 )
 def create_lead(payload: LeadCreate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> Lead:
-    lead = Lead(agency_id=current_user.agency_id, **payload.model_dump())
+    data = payload.model_dump()
+    data.setdefault("lead_state", "active")
+    data.setdefault("auto_created", False)
+    lead = Lead(agency_id=current_user.agency_id, **data)
     db.add(lead)
     db.flush()
     _lead_event(
