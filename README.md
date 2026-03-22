@@ -7,7 +7,7 @@ Production-oriented CRM baseline for a regional commercial real estate agency.
 - Phase 1.2: login-only authentication, RBAC, admin user management, audit log.
 - Phase 1.3: dashboard and tabbed UI with kanban boards.
 - Phase 2/3: call-center module (IP-telephony webhook, recording playback, transcription, call-to-lead).
-- Parser automation update: fully automatic parser scheduler every 24 hours by default.
+- Parser automation update: fully autonomous discovery + parsing orchestration (daily at 05:00 MSK).
 
 ## Main Tabs
 - `Home` - KPI and conversion dashboard.
@@ -91,7 +91,6 @@ Core:
 
 Parser automation:
 - `PARSER_SCHEDULER_ENABLED=true`
-- `PARSER_POLL_INTERVAL_MINUTES=1440`
 - `PARSER_REQUEST_TIMEOUT_SEC=25`
 - `PARSER_MAX_ITEMS_PER_SOURCE=10000`
 - `PARSER_DETAIL_FETCH_LIMIT=10`
@@ -121,16 +120,13 @@ Telephony and transcription:
 - `OPENAI_BASE_URL=https://api.openai.com/v1`
 - `TRANSCRIPTION_MODEL=whisper-1`
 
-## Parser Hub: Automatic Collection Every 24 Hours
+## Parser Hub: Автономный оркестратор (05:00 MSK)
 
-1. Configure sources in UI (`Parser Hub -> Auto Sources`) or API.
-2. Keep sources active (`is_active=true`).
-3. The background scheduler runs every `PARSER_POLL_INTERVAL_MINUTES` and:
-   - fetches sources from `avito`, `cian`, `domclick`, and `telegram`,
-   - extracts listings and contact signals,
-   - deduplicates them via existing dedup pipeline,
-   - writes run history with counts and errors.
-4. You can force an immediate run with `Run parser now` button or API.
+1. Ежедневно в 05:00 MSK запускается discovery источников.
+2. Высококонфидентные источники активируются автоматически.
+3. После discovery запускается парсинг всех активных источников.
+4. История запусков и расписание видны в `Parser Hub -> Автономный оркестратор`.
+5. Ручной запуск/seed остаётся как административный fallback.
 
 ### Avito: Official API Mode (No HTML Scraping)
 

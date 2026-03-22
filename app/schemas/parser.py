@@ -27,6 +27,11 @@ class ParserIngestItem(BaseModel):
     contact_name: str | None = None
     contact_phone: str | None = None
     contact_email: str | None = None
+    contact_candidates: list[dict[str, Any]] | None = None
+    selected_contact: dict[str, Any] | None = None
+    rejected_contacts: list[dict[str, Any]] | None = None
+    contact_rejection_reasons: list[str] | None = None
+    contact_confidence: float | None = None
     intent: ContactIntent = ContactIntent.unknown
     payload: dict[str, Any] | None = None
 
@@ -56,10 +61,25 @@ class ParserResultRead(BaseModel):
     contact_name: str | None
     contact_phone: str | None
     contact_email: str | None
+    contact_candidates: list[dict[str, Any]] | None = None
+    selected_contact: dict[str, Any] | None = None
+    rejected_contacts: list[dict[str, Any]] | None = None
+    contact_rejection_reasons: list[str] | None = None
+    contact_confidence: float | None = None
+    lead_score: float | None = None
+    owner_probability_score: float | None = None
+    owner_priority_score: float | None = None
+    owner_confidence: float | None = None
+    owner_explanation_summary: str | None = None
+    market_median_price: float | None = None
+    market_median_price_per_m2: float | None = None
+    deviation_from_market_pct: float | None = None
+    below_market_flag: bool | None = None
     intent: ContactIntent
     status: ParserResultStatus
     duplicate_of_id: int | None
     fingerprint: str | None
+    payload: dict[str, Any] | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -93,6 +113,8 @@ class ParserSourceCreate(BaseModel):
     region_code: str = "RU-UDM"
     is_active: bool = True
     poll_minutes: int = Field(default=1440, ge=60, le=10080)
+    parse_frequency_minutes: int | None = Field(default=None, ge=60, le=10080)
+    parse_priority: int | None = Field(default=None, ge=0, le=100)
     max_items_per_run: int = Field(default=10000, ge=1, le=10000)
     extra_config: dict[str, Any] | None = None
 
@@ -104,6 +126,8 @@ class ParserSourceUpdate(BaseModel):
     region_code: str | None = None
     is_active: bool | None = None
     poll_minutes: int | None = Field(default=None, ge=60, le=10080)
+    parse_frequency_minutes: int | None = Field(default=None, ge=60, le=10080)
+    parse_priority: int | None = Field(default=None, ge=0, le=100)
     max_items_per_run: int | None = Field(default=None, ge=1, le=10000)
     extra_config: dict[str, Any] | None = None
 
@@ -117,12 +141,31 @@ class ParserSourceRead(BaseModel):
     city: str | None
     region_code: str
     is_active: bool
+    source_state: str | None = None
+    activation_mode: str | None = None
+    auto_discovered: bool | None = None
     poll_minutes: int
+    parse_frequency_minutes: int | None = None
+    parse_priority: int | None = None
     max_items_per_run: int
     extra_config: dict[str, Any] | None
+    last_discovery_at: datetime | None
+    last_parsed_at: datetime | None
+    next_scheduled_parse_at: datetime | None
+    last_fetch_at: datetime | None
+    last_error_at: datetime | None
+    health_status: str | None = None
+    failure_count: int | None = None
+    consecutive_success_count: int | None = None
+    scheduler_lock_key: str | None = None
+    auto_activation_reason: str | None = None
     last_run_at: datetime | None
     last_success_at: datetime | None
     last_error: str | None
+    listings_parsed_last_run: int | None = None
+    contacts_extracted_last_run: int | None = None
+    contacts_rejected_last_run: int | None = None
+    leads_published_last_run: int | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -143,6 +186,27 @@ class ParserRunRead(BaseModel):
     error_message: str | None
     started_at: datetime
     finished_at: datetime | None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class SourceParseRunRead(BaseModel):
+    id: int
+    parser_source_id: int
+    job_run_id: int | None
+    status: str
+    started_at: datetime
+    finished_at: datetime | None
+    fetched_count: int
+    listings_parsed: int
+    inserted_count: int
+    duplicate_count: int
+    possible_duplicate_count: int
+    contacts_extracted: int
+    contacts_rejected: int
+    leads_published: int
+    error_message: str | None
     created_at: datetime
 
     model_config = {"from_attributes": True}

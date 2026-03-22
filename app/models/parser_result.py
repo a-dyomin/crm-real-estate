@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, Enum, Float, ForeignKey, JSON, Numeric, String, Text
+from sqlalchemy import Boolean, DateTime, Enum, Float, ForeignKey, JSON, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -33,6 +33,20 @@ class ParserResult(Base):
     contact_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     contact_phone: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     contact_email: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    contact_candidates: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
+    selected_contact: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    rejected_contacts: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
+    contact_rejection_reasons: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    contact_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    lead_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    owner_probability_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    owner_priority_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    owner_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    owner_explanation_summary: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    market_median_price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    market_median_price_per_m2: Mapped[float | None] = mapped_column(Float, nullable=True)
+    deviation_from_market_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    below_market_flag: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     intent: Mapped[ContactIntent] = mapped_column(Enum(ContactIntent), default=ContactIntent.unknown, nullable=False)
     status: Mapped[ParserResultStatus] = mapped_column(Enum(ParserResultStatus), default=ParserResultStatus.new, nullable=False, index=True)
     duplicate_of_id: Mapped[int | None] = mapped_column(ForeignKey("parser_results.id"), nullable=True, index=True)

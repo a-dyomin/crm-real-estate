@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>FORMA CRM - Настройки парсера</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body data-api-prefix="{{ api_prefix }}" class="admin-page">
+    <header class="topbar">
+      <div class="brand">
+        <img class="brand-logo" src="/static/forma-icon.svg" alt="FORMA" />
+        <div class="brand-text">
+          <h1>FORMA</h1>
+          <p>Настройки парсера</p>
+        </div>
+      </div>
+      <div class="userbox">
+        <div id="currentUserInfo"></div>
+        <button id="logoutBtn" class="secondary">Выйти</button>
+      </div>
+    </header>
+
+    <div class="workspace">
+      <aside class="sidebar">
+        <a class="tab-btn" href="/?tab=home">Главная</a>
+        <a class="tab-btn" href="/?tab=leads">Лиды</a>
+        <a class="tab-btn" href="/?tab=deals">Сделки</a>
+        <a class="tab-btn" href="/?tab=parser">Parser Hub</a>
+        <a class="tab-btn active" href="/parser-settings">Настройки парсера</a>
+        <a class="tab-btn" href="/?tab=calls">Колл-центр</a>
+        <a class="tab-btn" href="/?tab=users">Пользователи</a>
+      </aside>
+
+      <main class="content">
+        <div class="tab-title">
+          <h2>Настройки парсера</h2>
+          <div class="tab-actions">
+            <button id="refreshParserSettingsBtn" class="secondary">Обновить</button>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="tab-title">
+            <h3>Автономный оркестратор</h3>
+            <span class="muted" id="autonomyNowLabel"></span>
+          </div>
+          <div class="autonomy-grid">
+            <div class="autonomy-card">
+              <h4>Статус расписания</h4>
+              <div id="autonomySummary" class="status-list"></div>
+            </div>
+            <div class="autonomy-card">
+              <div class="tab-title">
+                <h4>История job-run</h4>
+                <button id="refreshAutonomyBtn" class="secondary">Обновить</button>
+              </div>
+              <div class="table-scroll">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>ID</th>
+                      <th>Job</th>
+                      <th>Статус</th>
+                      <th>Старт</th>
+                      <th>Финиш</th>
+                      <th>Ошибка</th>
+                    </tr>
+                  </thead>
+                  <tbody id="jobRunRows"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="tab-title">
+            <h3>Активные источники</h3>
+            <div class="tab-actions">
+              <label>Лимит
+                <select id="autonomySourceLimit">
+                  <option value="25">25</option>
+                  <option value="50" selected>50</option>
+                  <option value="100">100</option>
+                </select>
+              </label>
+            </div>
+          </div>
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Источник</th>
+                  <th>Тип</th>
+                  <th>Состояние</th>
+                  <th>Health</th>
+                  <th>Priority</th>
+                  <th>Next parse</th>
+                  <th>Auto</th>
+                  <th>Последний успех</th>
+                  <th>Последняя ошибка</th>
+                  <th>Листингов</th>
+                  <th>Контактов</th>
+                  <th>Отклонено</th>
+                  <th>Лиды</th>
+                </tr>
+              </thead>
+              <tbody id="autonomySourceRows"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="tab-title">
+            <h3>Запуски по источникам</h3>
+            <div class="tab-actions">
+              <button id="refreshSourceRunsBtn" class="secondary">Обновить</button>
+            </div>
+          </div>
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Источник</th>
+                  <th>Статус</th>
+                  <th>Получено</th>
+                  <th>Листингов</th>
+                  <th>Контактов</th>
+                  <th>Отклонено</th>
+                  <th>Лиды</th>
+                  <th>Старт</th>
+                  <th>Ошибка</th>
+                </tr>
+              </thead>
+              <tbody id="sourceRunRows"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="tab-title">
+            <h3>Последние запуски парсера</h3>
+            <button id="refreshParserRunsBtn" class="secondary">Обновить</button>
+          </div>
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Статус</th>
+                  <th>Триггер</th>
+                  <th>Получено</th>
+                  <th>Добавлено</th>
+                  <th>Ошибки</th>
+                  <th>Старт</th>
+                </tr>
+              </thead>
+              <tbody id="parserRunRows"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="panel discovery-panel">
+          <div class="tab-title">
+            <h3>Обнаружение источников</h3>
+            <div class="tab-actions">
+              <button id="discoveryRunBtn">Запустить discovery</button>
+            </div>
+          </div>
+          <div class="discovery-grid">
+            <div class="discovery-block">
+              <div class="discovery-block-head">
+                <h4>Реестр seed-источников</h4>
+                <span class="muted">Домены, URL, ключевые запросы</span>
+              </div>
+              <div id="discoverySeedFormWrap">
+                <form id="discoverySeedForm" class="grid discovery-seed-form">
+                  <label>Тип
+                    <select name="seed_type" required>
+                      <option value="domain">Домен</option>
+                      <option value="url">URL</option>
+                      <option value="telegram_channel">Telegram</option>
+                      <option value="keyword">Ключевое слово</option>
+                    </select>
+                  </label>
+                  <label class="span-2">Значение
+                    <input name="value" placeholder="example.com или https://..." required />
+                  </label>
+                  <label>Регион
+                    <input name="region" placeholder="RU-UDM" />
+                  </label>
+                  <label>Приоритет
+                    <input name="priority" type="number" min="0" max="100" value="50" />
+                  </label>
+                  <label class="seed-toggle">
+                    <input name="enabled" type="checkbox" checked />
+                    <span>Активен</span>
+                  </label>
+                  <button type="submit">Добавить seed</button>
+                </form>
+              </div>
+              <div class="table-scroll">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>ID</th>
+                      <th>Тип</th>
+                      <th>Значение</th>
+                      <th>Регион</th>
+                      <th>Приоритет</th>
+                      <th>Статус</th>
+                      <th>Действия</th>
+                    </tr>
+                  </thead>
+                  <tbody id="discoverySeedRows"></tbody>
+                </table>
+              </div>
+            </div>
+            <div class="discovery-block">
+              <div class="discovery-block-head">
+                <h4>Последние прогоны</h4>
+                <span class="muted">Запуски discovery</span>
+              </div>
+              <div class="table-scroll">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>ID</th>
+                      <th>Статус</th>
+                      <th>Seeds</th>
+                      <th>Кандидаты</th>
+                      <th>Matches</th>
+                      <th>Ошибки</th>
+                      <th>Старт</th>
+                    </tr>
+                  </thead>
+                  <tbody id="discoveryRunRows"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel discovery-panel">
+          <div class="tab-title">
+            <h3>Новые источники</h3>
+            <div class="tab-actions discovery-toolbar">
+              <label>Лимит
+                <select id="discoveryLimitSelect">
+                  <option value="25">25</option>
+                  <option value="50" selected>50</option>
+                  <option value="100">100</option>
+                  <option value="200">200</option>
+                </select>
+              </label>
+            </div>
+          </div>
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Домен</th>
+                  <th>Тип</th>
+                  <th>Статус</th>
+                  <th>Релевантность</th>
+                  <th>Плотность</th>
+                  <th>Контакты</th>
+                  <th>Обновления</th>
+                  <th>Шаблон</th>
+                  <th>Приоритет</th>
+                  <th>Состояние</th>
+                  <th>Последний раз</th>
+                </tr>
+              </thead>
+              <tbody id="discoveredSourceRows"></tbody>
+            </table>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <script src="/static/parser_settings.js"></script>
+  </body>
+</html>

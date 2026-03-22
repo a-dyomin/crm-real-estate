@@ -45,6 +45,64 @@ STREET_RE = re.compile(
     r"\b(?:ул\.?|улица|пр-?кт|проспект|пер\.?|переулок|шоссе|бульвар|наб\.?|набережная|проезд|пл\.?|площадь|мкр\.?|микрорайон)\s*[^,;\n]{3,80}",
     re.IGNORECASE,
 )
+CONTACT_EMAIL_REJECT_PREFIXES = (
+    "help",
+    "support",
+    "info",
+    "no-reply",
+    "noreply",
+    "feedback",
+    "admin",
+    "press",
+    "hr",
+    "jobs",
+    "career",
+    "marketing",
+    "ads",
+    "advert",
+    "sales",
+)
+CONTACT_SUPPORT_KEYWORDS = (
+    "\u043f\u043e\u0434\u0434\u0435\u0440\u0436",
+    "\u0441\u043b\u0443\u0436\u0431\u0430 \u043f\u043e\u0434\u0434\u0435\u0440\u0436\u043a\u0438",
+    "\u0442\u0435\u0445\u043f\u043e\u0434\u0434\u0435\u0440\u0436",
+    "\u043a\u043e\u043d\u0442\u0430\u043a\u0442\u043d\u044b\u0439 \u0446\u0435\u043d\u0442\u0440",
+    "\u0433\u043e\u0440\u044f\u0447\u0430\u044f \u043b\u0438\u043d\u0438\u044f",
+    "\u043e\u0431\u0440\u0430\u0442\u043d\u0430\u044f \u0441\u0432\u044f\u0437\u044c",
+    "\u0440\u0435\u043a\u043b\u0430\u043c",
+    "\u0440\u0430\u0437\u043c\u0435\u0449\u0435\u043d",
+    "support",
+    "help",
+    "feedback",
+    "helpdesk",
+    "customer support",
+    "call center",
+)
+CONTACT_OWNER_KEYWORDS = (
+    "\u0441\u043e\u0431\u0441\u0442\u0432\u0435\u043d\u043d\u0438\u043a",
+    "\u0432\u043b\u0430\u0434\u0435\u043b",
+    "\u043f\u0440\u044f\u043c\u043e\u0439",
+    "\u0431\u0435\u0437 \u043a\u043e\u043c\u0438\u0441\u0441\u0438\u0438",
+    "\u043f\u0440\u043e\u0434\u0430\u0432\u0435\u0446",
+    "\u0430\u0440\u0435\u043d\u0434\u043e\u0434\u0430\u0442\u0435\u043b\u044c",
+    "owner",
+)
+CONTACT_AGENT_KEYWORDS = (
+    "\u0430\u0433\u0435\u043d\u0442",
+    "\u0440\u0438\u044d\u043b\u0442\u043e\u0440",
+    "\u0431\u0440\u043e\u043a\u0435\u0440",
+    "\u043c\u0435\u043d\u0435\u0434\u0436\u0435\u0440",
+    "agent",
+    "realtor",
+    "broker",
+)
+CONTACT_SELLER_HINT_KEYWORDS = CONTACT_OWNER_KEYWORDS + CONTACT_AGENT_KEYWORDS + (
+    "\u043a\u043e\u043d\u0442\u0430\u043a\u0442",
+    "\u0442\u0435\u043b\u0435\u0444\u043e\u043d",
+    "phone",
+    "whatsapp",
+    "telegram",
+)
 UDMURTIA_DISTRICTS = (
     "\u0423\u0441\u0442\u0438\u043d\u043e\u0432\u0441\u043a\u0438\u0439",
     "\u041f\u0435\u0440\u0432\u043e\u043c\u0430\u0439\u0441\u043a\u0438\u0439",
@@ -154,6 +212,406 @@ _AVITO_TOKEN_CACHE: dict[str, Any] = {"client_id": "", "access_token": "", "expi
 
 def _normalize_text(value: str | None) -> str:
     return " ".join((value or "").split()).strip()
+
+
+def _normalize_contact_phone(value: str | None) -> str:
+    if not value:
+        return ""
+    digits = re.sub(r"\D+", "", value)
+    if digits.startswith("8") and len(digits) == 11:
+        digits = "7" + digits[1:]
+    if digits.startswith("7") and len(digits) == 11:
+        return f"+{digits}"
+    return value.strip()
+
+
+def _normalize_contact_email(value: str | None) -> str:
+    return (value or "").strip().lower()
+
+
+def _source_domain(source_url: str) -> str:
+    host = urlparse(source_url or "").netloc.lower()
+    return host.replace("www.", "").strip()
+
+
+def _has_any_keyword(text: str, keywords: tuple[str, ...]) -> bool:
+    return any(keyword in text for keyword in keywords)
+
+
+def _element_location(element: Any) -> str:
+    if not element:
+        return "text"
+    for parent in getattr(element, "parents", []):
+        tag = getattr(parent, "name", "") or ""
+        if tag.lower() == "footer":
+            return "footer"
+        if tag.lower() == "header":
+            return "header"
+    classes = " ".join(getattr(element, "get", lambda _k, _d=None: _d)("class", []) or [])
+    element_id = getattr(element, "get", lambda _k, _d=None: _d)("id", "") or ""
+    meta = f"{classes} {element_id}".lower()
+    if "footer" in meta or "подвал" in meta:
+        return "footer"
+    if "header" in meta or "шапк" in meta:
+        return "header"
+    if any(token in meta for token in ("seller", "owner", "agent", "contact", "phone", "realtor", "broker")):
+        return "seller_block"
+    return "listing_body"
+
+
+def _add_contact_candidate(
+    candidates: list[dict[str, Any]],
+    seen: set[tuple[str, str]],
+    *,
+    value: str,
+    candidate_type: str,
+    source_location: str,
+    context: str | None = None,
+    origin: str | None = None,
+) -> None:
+    if not value:
+        return
+    normalized = _normalize_contact_phone(value) if candidate_type == "phone" else _normalize_contact_email(value)
+    if not normalized:
+        return
+    key = (candidate_type, normalized)
+    if key in seen:
+        return
+    seen.add(key)
+    candidates.append(
+        {
+            "value": value.strip(),
+            "normalized": normalized,
+            "type": candidate_type,
+            "source_location": source_location,
+            "context": _normalize_text(context)[:240] if context else None,
+            "origin": origin,
+        }
+    )
+
+
+def _extract_contact_candidates_from_payload(payload: Any, candidates: list[dict[str, Any]], seen: set[tuple[str, str]]) -> None:
+    if payload is None:
+        return
+    if isinstance(payload, dict):
+        for key, value in payload.items():
+            key_lower = str(key).lower()
+            if isinstance(value, str):
+                if "mail" in key_lower or "email" in key_lower:
+                    for email in EMAIL_RE.findall(value):
+                        _add_contact_candidate(
+                            candidates,
+                            seen,
+                            value=email,
+                            candidate_type="email",
+                            source_location="json_payload",
+                            context=key_lower,
+                            origin="json_payload",
+                        )
+                if "phone" in key_lower or "tel" in key_lower or "contact" in key_lower:
+                    for phone in PHONE_RE.findall(value):
+                        _add_contact_candidate(
+                            candidates,
+                            seen,
+                            value=phone,
+                            candidate_type="phone",
+                            source_location="json_payload",
+                            context=key_lower,
+                            origin="json_payload",
+                        )
+            _extract_contact_candidates_from_payload(value, candidates, seen)
+    elif isinstance(payload, list):
+        for item in payload:
+            _extract_contact_candidates_from_payload(item, candidates, seen)
+    elif isinstance(payload, str):
+        for phone in PHONE_RE.findall(payload):
+            _add_contact_candidate(
+                candidates,
+                seen,
+                value=phone,
+                candidate_type="phone",
+                source_location="json_payload",
+                context="payload_text",
+                origin="json_payload",
+            )
+        for email in EMAIL_RE.findall(payload):
+            _add_contact_candidate(
+                candidates,
+                seen,
+                value=email,
+                candidate_type="email",
+                source_location="json_payload",
+                context="payload_text",
+                origin="json_payload",
+            )
+
+
+def _extract_contact_candidates_from_text(
+    text: str,
+    candidates: list[dict[str, Any]],
+    seen: set[tuple[str, str]],
+    *,
+    source_location: str,
+    context: str | None = None,
+    origin: str | None = None,
+) -> None:
+    for phone in PHONE_RE.findall(text or ""):
+        _add_contact_candidate(
+            candidates,
+            seen,
+            value=phone,
+            candidate_type="phone",
+            source_location=source_location,
+            context=context or text,
+            origin=origin,
+        )
+    for email in EMAIL_RE.findall(text or ""):
+        _add_contact_candidate(
+            candidates,
+            seen,
+            value=email,
+            candidate_type="email",
+            source_location=source_location,
+            context=context or text,
+            origin=origin,
+        )
+
+
+def _extract_contact_candidates_from_soup(
+    soup: BeautifulSoup,
+    candidates: list[dict[str, Any]],
+    seen: set[tuple[str, str]],
+) -> None:
+    for link in soup.select("a[href^='tel:']"):
+        raw = link.get("href") or ""
+        match = TEL_RE.search(raw)
+        phone = match.group(1) if match else _extract_first(PHONE_RE, raw)
+        context = link.get_text(" ", strip=True) or (link.parent.get_text(" ", strip=True) if link.parent else "")
+        _add_contact_candidate(
+            candidates,
+            seen,
+            value=phone or "",
+            candidate_type="phone",
+            source_location=_element_location(link),
+            context=context,
+            origin="tel_link",
+        )
+    for link in soup.select("a[href^='mailto:']"):
+        raw = link.get("href") or ""
+        email = raw.split("mailto:", 1)[-1].split("?", 1)[0]
+        context = link.get_text(" ", strip=True) or (link.parent.get_text(" ", strip=True) if link.parent else "")
+        _add_contact_candidate(
+            candidates,
+            seen,
+            value=email,
+            candidate_type="email",
+            source_location=_element_location(link),
+            context=context,
+            origin="mailto_link",
+        )
+    for attr in ("data-phone", "data-tel", "data-contact-phone", "data-qa-phone", "data-phone-number"):
+        for element in soup.select(f"[{attr}]"):
+            raw = element.get(attr) or ""
+            phone = _extract_first(PHONE_RE, raw)
+            context = element.get_text(" ", strip=True)
+            _add_contact_candidate(
+                candidates,
+                seen,
+                value=phone or raw,
+                candidate_type="phone",
+                source_location=_element_location(element),
+                context=context,
+                origin=f"attr:{attr}",
+            )
+
+    seller_selectors = (
+        ".seller",
+        ".agent",
+        ".owner",
+        ".realtor",
+        ".broker",
+        ".contact",
+        ".contacts",
+        ".phone",
+        "[class*='seller']",
+        "[class*='agent']",
+        "[class*='owner']",
+        "[class*='contact']",
+        "[class*='phone']",
+        "[id*='seller']",
+        "[id*='agent']",
+        "[id*='owner']",
+        "[id*='contact']",
+    )
+    for element in soup.select(",".join(seller_selectors)):
+        text = element.get_text(" ", strip=True)
+        _extract_contact_candidates_from_text(
+            text,
+            candidates,
+            seen,
+            source_location=_element_location(element),
+            context=text,
+            origin="seller_block",
+        )
+
+
+def _classify_contact_candidate(candidate: dict[str, Any], source_domain: str) -> dict[str, Any]:
+    value = str(candidate.get("value") or "")
+    context = str(candidate.get("context") or "").lower()
+    location = str(candidate.get("source_location") or "")
+    candidate_type = str(candidate.get("type") or "")
+    reasons: list[str] = []
+
+    has_seller_hint = _has_any_keyword(context, CONTACT_SELLER_HINT_KEYWORDS)
+    has_owner_hint = _has_any_keyword(context, CONTACT_OWNER_KEYWORDS)
+    has_agent_hint = _has_any_keyword(context, CONTACT_AGENT_KEYWORDS)
+
+    if candidate_type == "email":
+        normalized = _normalize_contact_email(value)
+        local_part, _, domain = normalized.partition("@")
+        if local_part and any(local_part.startswith(prefix) for prefix in CONTACT_EMAIL_REJECT_PREFIXES):
+            reasons.append("email_prefix_blocked")
+        if domain and source_domain and domain.endswith(source_domain) and not has_seller_hint:
+            reasons.append("platform_domain")
+    if _has_any_keyword(context, CONTACT_SUPPORT_KEYWORDS):
+        reasons.append("support_context")
+    if location in ("header", "footer") and not has_seller_hint:
+        reasons.append("header_footer")
+    if "\u0440\u0435\u043a\u043b\u0430\u043c" in context or "advert" in context or "ads" in context:
+        reasons.append("ad_contact")
+
+    rejected = bool(reasons)
+    contact_class = "unknown_contact"
+    if rejected:
+        if "support" in " ".join(reasons) or "email_prefix_blocked" in reasons:
+            contact_class = "support_contact"
+        else:
+            contact_class = "platform_contact"
+    else:
+        if has_owner_hint:
+            contact_class = "owner_candidate"
+        elif has_agent_hint:
+            contact_class = "agent_candidate"
+        elif location in ("seller_block", "listing_meta", "detail_block"):
+            contact_class = "organization_contact"
+
+    base_confidence = {
+        "owner_candidate": 0.9,
+        "agent_candidate": 0.75,
+        "organization_contact": 0.6,
+        "unknown_contact": 0.35,
+        "platform_contact": 0.1,
+        "support_contact": 0.1,
+    }.get(contact_class, 0.3)
+    if candidate_type == "phone":
+        base_confidence += 0.05
+    if location in ("seller_block", "listing_meta", "detail_block"):
+        base_confidence += 0.05
+    if location in ("header", "footer"):
+        base_confidence -= 0.2
+    confidence = max(0.05, min(1.0, base_confidence))
+
+    candidate["class"] = contact_class
+    candidate["confidence"] = round(confidence, 3)
+    candidate["rejected"] = rejected
+    candidate["rejection_reasons"] = reasons
+    return candidate
+
+
+def _select_best_contact(candidates: list[dict[str, Any]]) -> dict[str, Any] | None:
+    valid = [candidate for candidate in candidates if not candidate.get("rejected")]
+    if not valid:
+        for candidate in candidates:
+            candidate["is_selected_for_lead"] = False
+        return None
+    valid.sort(
+        key=lambda candidate: (
+            float(candidate.get("confidence") or 0),
+            1 if candidate.get("type") == "phone" else 0,
+        ),
+        reverse=True,
+    )
+    selected = valid[0]
+    for candidate in candidates:
+        candidate["is_selected_for_lead"] = candidate is selected
+    return selected
+
+
+def _contact_label(contact_class: str | None) -> str | None:
+    mapping = {
+        "owner_candidate": "\u0421\u043e\u0431\u0441\u0442\u0432\u0435\u043d\u043d\u0438\u043a",
+        "agent_candidate": "\u0410\u0433\u0435\u043d\u0442",
+        "organization_contact": "\u041e\u0440\u0433\u0430\u043d\u0438\u0437\u0430\u0446\u0438\u044f",
+        "unknown_contact": "\u041a\u043e\u043d\u0442\u0430\u043a\u0442",
+    }
+    return mapping.get(contact_class or "")
+
+
+def _build_contact_pipeline(
+    *,
+    source: ParserSource,
+    raw_text: str,
+    soup: BeautifulSoup | None,
+    json_payloads: list[Any] | None = None,
+    context_text: str | None = None,
+    seed_contacts: list[tuple[str, str]] | None = None,
+) -> dict[str, Any]:
+    candidates: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    if seed_contacts:
+        for candidate_type, value in seed_contacts:
+            _add_contact_candidate(
+                candidates,
+                seen,
+                value=value,
+                candidate_type=candidate_type,
+                source_location="seed",
+                context=context_text,
+                origin="seed",
+            )
+    for payload in json_payloads or []:
+        _extract_contact_candidates_from_payload(payload, candidates, seen)
+    if soup is not None:
+        _extract_contact_candidates_from_soup(soup, candidates, seen)
+    if context_text:
+        _extract_contact_candidates_from_text(
+            context_text,
+            candidates,
+            seen,
+            source_location="listing_body",
+            context=context_text,
+            origin="listing_body",
+        )
+    if raw_text:
+        _extract_contact_candidates_from_text(
+            raw_text[:4000],
+            candidates,
+            seen,
+            source_location="page_text",
+            context=context_text,
+            origin="page_text",
+        )
+
+    domain = _source_domain(source.source_url)
+    for candidate in candidates:
+        _classify_contact_candidate(candidate, domain)
+
+    selected = _select_best_contact(candidates)
+    rejected = [candidate for candidate in candidates if candidate.get("rejected")]
+    rejection_reasons: list[str] = []
+    for candidate in rejected:
+        rejection_reasons.extend(candidate.get("rejection_reasons") or [])
+    rejection_reasons = sorted(set(rejection_reasons))
+    if selected:
+        selected["label"] = _contact_label(str(selected.get("class")))
+
+    return {
+        "contact_candidates": candidates,
+        "selected_contact": selected,
+        "rejected_contacts": rejected,
+        "contact_rejection_reasons": rejection_reasons,
+        "contact_confidence": float(selected.get("confidence")) if selected else None,
+    }
 
 
 def _looks_like_html(value: str) -> bool:
@@ -793,13 +1251,11 @@ def _build_item_from_detail(source: ParserSource, listing_url: str, raw_text: st
                 break
         address_from_soup = _extract_address_from_soup(soup)
         image_url = _extract_image_from_soup(soup, listing_url)
-        phone = _extract_phone_from_html(raw_text, soup) or _extract_first(PHONE_RE, text)
         listing_hint = _normalize_text(" ".join([page_title, description]))
     else:
         page_title = _extract_markdown_title(raw_text) or f"{source.source_channel.value} listing"
         text = _strip_markdown(raw_text)[:12000]
         image_url = None
-        phone = _extract_first(PHONE_RE, text)
         listing_hint = text
         address_from_payload = None
         address_from_soup = None
@@ -811,6 +1267,24 @@ def _build_item_from_detail(source: ParserSource, listing_url: str, raw_text: st
         return None
     address_district, address_street = _extract_address_parts(text, address)
     listing_type = _detect_listing_type(listing_hint, listing_url)
+
+    contact_info = _build_contact_pipeline(
+        source=source,
+        raw_text=raw_text,
+        soup=soup if _looks_like_html(raw_text) else None,
+        json_payloads=json_payloads if _looks_like_html(raw_text) else None,
+        context_text=listing_hint or text,
+    )
+    selected_contact = contact_info.get("selected_contact") if contact_info else None
+    contact_phone = None
+    contact_email = None
+    contact_name = None
+    if isinstance(selected_contact, dict):
+        if selected_contact.get("type") == "phone":
+            contact_phone = selected_contact.get("normalized") or selected_contact.get("value")
+        if selected_contact.get("type") == "email":
+            contact_email = selected_contact.get("normalized") or selected_contact.get("value")
+        contact_name = selected_contact.get("label")
 
     return ParserIngestItem(
         source_channel=source.source_channel,
@@ -827,18 +1301,208 @@ def _build_item_from_detail(source: ParserSource, listing_url: str, raw_text: st
         region_code=source.region_code,
         area_sqm=_extract_area(text),
         price_rub=_extract_price(text),
-        contact_name=source.name,
-        contact_phone=phone,
-        contact_email=_extract_first(EMAIL_RE, text),
+        contact_name=contact_name or None,
+        contact_phone=contact_phone,
+        contact_email=contact_email,
+        contact_candidates=contact_info.get("contact_candidates") if contact_info else None,
+        selected_contact=contact_info.get("selected_contact") if contact_info else None,
+        rejected_contacts=contact_info.get("rejected_contacts") if contact_info else None,
+        contact_rejection_reasons=contact_info.get("contact_rejection_reasons") if contact_info else None,
+        contact_confidence=contact_info.get("contact_confidence") if contact_info else None,
         intent=_detect_intent(text),
         payload={"source_name": source.name, "source_url": source.source_url, "parser": "html_scraper"},
     )
 
 
+def _is_listing_record(record: dict[str, Any]) -> bool:
+    keys = {str(key).lower() for key in record.keys()}
+    score = 0
+    if keys & {"title", "name", "heading"}:
+        score += 1
+    if keys & {"price", "cost", "price_value", "amount"}:
+        score += 1
+    if keys & {"address", "location", "addressraw", "streetaddress"}:
+        score += 1
+    if keys & {"area", "area_sqm", "square", "sqm", "floorarea"}:
+        score += 1
+    if keys & {"url", "link", "href", "detail_url"}:
+        score += 1
+    return score >= 2
+
+
+def _extract_listing_records(payloads: list[Any]) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    def walk(node: Any) -> None:
+        if isinstance(node, dict):
+            if _is_listing_record(node):
+                record_id = str(node.get("id") or node.get("external_id") or node.get("url") or node.get("link") or "")
+                if record_id and record_id in seen:
+                    return
+                if record_id:
+                    seen.add(record_id)
+                records.append(node)
+                return
+            for value in node.values():
+                walk(value)
+        elif isinstance(node, list):
+            for item in node:
+                walk(item)
+
+    for payload in payloads:
+        walk(payload)
+    return records
+
+
+def _build_item_from_record(source: ParserSource, record: dict[str, Any], base_url: str) -> ParserIngestItem | None:
+    title = _normalize_text(str(record.get("title") or record.get("name") or record.get("heading") or ""))
+    raw_url = _normalize_text(str(record.get("url") or record.get("link") or record.get("href") or base_url))
+    description = _normalize_text(str(record.get("description") or record.get("text") or record.get("summary") or ""))
+    text = " ".join([title, description])
+    if not title:
+        return None
+    normalized_address = _normalize_text(str(record.get("address") or record.get("location") or "")) or _extract_first(
+        ADDRESS_RE, text
+    )
+    if not _passes_region_filter(source, text, normalized_address):
+        return None
+    address_district, address_street = _extract_address_parts(text, normalized_address)
+    listing_type = _detect_listing_type(text, raw_url)
+    explicit_price = _to_float(record.get("price") or record.get("cost") or record.get("amount"))
+    explicit_area = _to_float(record.get("area") or record.get("area_sqm") or record.get("sqm"))
+    seed_contacts: list[tuple[str, str]] = []
+    raw_phone = _normalize_text(str(record.get("phone") or record.get("contact_phone") or ""))
+    if raw_phone:
+        seed_contacts.append(("phone", raw_phone))
+    raw_email = _normalize_text(str(record.get("email") or record.get("contact_email") or ""))
+    if raw_email:
+        seed_contacts.append(("email", raw_email))
+    contact_info = _build_contact_pipeline(
+        source=source,
+        raw_text=text,
+        soup=None,
+        json_payloads=[record],
+        context_text=text,
+        seed_contacts=seed_contacts or None,
+    )
+    selected = contact_info.get("selected_contact") if contact_info else None
+    contact_phone = None
+    contact_email = None
+    contact_name = None
+    if isinstance(selected, dict):
+        if selected.get("type") == "phone":
+            contact_phone = selected.get("normalized") or selected.get("value")
+        if selected.get("type") == "email":
+            contact_email = selected.get("normalized") or selected.get("value")
+        contact_name = selected.get("label")
+
+    return ParserIngestItem(
+        source_channel=source.source_channel,
+        source_external_id=str(record.get("id") or record.get("external_id") or _extract_external_id(raw_url, title)),
+        raw_url=raw_url,
+        title=title[:255],
+        description=description[:4000],
+        listing_type=listing_type,
+        image_url=_extract_image_from_payload(record, base_url=raw_url),
+        normalized_address=normalized_address,
+        address_district=address_district,
+        address_street=address_street,
+        city=_normalize_text(str(record.get("city") or source.city or "")) or source.city,
+        region_code=_normalize_text(str(record.get("region_code") or source.region_code or "")) or source.region_code,
+        area_sqm=explicit_area if explicit_area is not None else _extract_area(text),
+        price_rub=explicit_price if explicit_price is not None else _extract_price(text),
+        contact_name=contact_name or None,
+        contact_phone=contact_phone,
+        contact_email=contact_email,
+        contact_candidates=contact_info.get("contact_candidates") if contact_info else None,
+        selected_contact=contact_info.get("selected_contact") if contact_info else None,
+        rejected_contacts=contact_info.get("rejected_contacts") if contact_info else None,
+        contact_rejection_reasons=contact_info.get("contact_rejection_reasons") if contact_info else None,
+        contact_confidence=contact_info.get("contact_confidence") if contact_info else None,
+        intent=_detect_intent(text),
+        payload={"source_name": source.name, "source_url": source.source_url, "parser": "embedded_json"},
+    )
+
+
+def _extract_listing_links_with_config(
+    soup: BeautifulSoup,
+    base_url: str,
+    list_config: dict[str, Any],
+) -> list[str]:
+    item_selector = str(list_config.get("item_selector") or "")
+    link_selector = str(list_config.get("link_selector") or "a")
+    link_attr = str(list_config.get("link_attr") or "href")
+    items = soup.select(item_selector) if item_selector else []
+    candidates = items if items else soup.select(link_selector)
+    links: set[str] = set()
+    for item in candidates:
+        targets = item.select(link_selector) if item is not None else []
+        if not targets and item_selector:
+            targets = [item]
+        for target in targets:
+            href = target.get(link_attr) or target.get("href") or ""
+            if not href:
+                continue
+            resolved = urljoin(base_url, href)
+            if resolved:
+                links.add(_canonical_listing_url(resolved))
+    return sorted(links)
+
+
+def _collect_items_with_auto_config(source: ParserSource, auto_config: dict[str, Any]) -> list[ParserIngestItem]:
+    start_urls = auto_config.get("start_urls") or [source.source_url]
+    list_config = auto_config.get("list") if isinstance(auto_config.get("list"), dict) else {}
+    detail_limit = settings.parser_detail_fetch_limit
+    links: list[str] = []
+    for start_url in start_urls:
+        try:
+            html = _fetch_text(start_url)
+        except Exception:
+            continue
+        soup = BeautifulSoup(html, "html.parser")
+        links.extend(_extract_listing_links_with_config(soup, start_url, list_config))
+        if len(links) >= source.max_items_per_run:
+            break
+    if not links:
+        return []
+    max_items = min(source.max_items_per_run, settings.parser_max_items_per_source, len(links))
+    detail_limit = min(max_items, detail_limit)
+    items: list[ParserIngestItem] = []
+    for link in links[:detail_limit]:
+        try:
+            detail_text = _fetch_text(link)
+            item = _build_item_from_detail(source, link, detail_text)
+            if item:
+                items.append(item)
+        except Exception:
+            continue
+    return items
+
+
 def _collect_marketplace_items(source: ParserSource) -> list[ParserIngestItem]:
+    auto_config = (source.extra_config or {}).get("auto_config")
+    if isinstance(auto_config, dict):
+        configured_items = _collect_items_with_auto_config(source, auto_config)
+        if configured_items:
+            return configured_items
     source_text = _fetch_text(source.source_url)
     links = _extract_listing_links(source, source.source_url, source_text)
     if not links:
+        soup = BeautifulSoup(source_text, "html.parser")
+        payloads = _extract_json_payloads(soup)
+        records = _extract_listing_records(payloads)
+        if records:
+            max_items = min(source.max_items_per_run, settings.parser_max_items_per_source, len(records))
+            items: list[ParserIngestItem] = []
+            for record in records[:max_items]:
+                if not isinstance(record, dict):
+                    continue
+                item = _build_item_from_record(source, record, source.source_url)
+                if item:
+                    items.append(item)
+            if items:
+                return items
         raise ValueError("No listing links were extracted from source page.")
 
     max_items = min(source.max_items_per_run, settings.parser_max_items_per_source, len(links))
@@ -931,7 +1595,28 @@ def _collect_avito_official_items(source: ParserSource) -> list[ParserIngestItem
             analysis_text = _normalize_text(" ".join([title, address or "", category_name, status]))
             address_district, address_street = _extract_address_parts(analysis_text, address)
             listing_type = _detect_listing_type(analysis_text, raw_url)
-            contact_phone = _extract_phone_from_payload(item_payload)
+            contact_phone_seed = _extract_phone_from_payload(item_payload)
+            seed_contacts: list[tuple[str, str]] = []
+            if contact_phone_seed:
+                seed_contacts.append(("phone", contact_phone_seed))
+            contact_info = _build_contact_pipeline(
+                source=source,
+                raw_text=analysis_text,
+                soup=None,
+                json_payloads=[item_payload],
+                context_text=analysis_text,
+                seed_contacts=seed_contacts or None,
+            )
+            selected = contact_info.get("selected_contact") if contact_info else None
+            contact_phone = None
+            contact_email = None
+            contact_name = None
+            if isinstance(selected, dict):
+                if selected.get("type") == "phone":
+                    contact_phone = selected.get("normalized") or selected.get("value")
+                if selected.get("type") == "email":
+                    contact_email = selected.get("normalized") or selected.get("value")
+                contact_name = selected.get("label")
             image_url = _extract_image_from_payload(item_payload, base_url=raw_url)
             items.append(
                 ParserIngestItem(
@@ -949,9 +1634,14 @@ def _collect_avito_official_items(source: ParserSource) -> list[ParserIngestItem
                     region_code=source.region_code,
                     area_sqm=None,
                     price_rub=price_rub,
-                    contact_name=source.name,
+                    contact_name=contact_name or None,
                     contact_phone=contact_phone,
-                    contact_email=None,
+                    contact_email=contact_email,
+                    contact_candidates=contact_info.get("contact_candidates") if contact_info else None,
+                    selected_contact=contact_info.get("selected_contact") if contact_info else None,
+                    rejected_contacts=contact_info.get("rejected_contacts") if contact_info else None,
+                    contact_rejection_reasons=contact_info.get("contact_rejection_reasons") if contact_info else None,
+                    contact_confidence=contact_info.get("contact_confidence") if contact_info else None,
                     intent=_detect_intent(analysis_text),
                     payload=item_payload,
                 )
@@ -1283,6 +1973,23 @@ def _build_telegram_item(
 ) -> ParserIngestItem:
     address_district, address_street = _extract_address_parts(text, _extract_first(ADDRESS_RE, text))
     listing_type = _detect_listing_type(text, message_url)
+    contact_info = _build_contact_pipeline(
+        source=source,
+        raw_text=text,
+        soup=None,
+        json_payloads=None,
+        context_text=text,
+    )
+    selected = contact_info.get("selected_contact") if contact_info else None
+    contact_phone = None
+    contact_email = None
+    contact_name = None
+    if isinstance(selected, dict):
+        if selected.get("type") == "phone":
+            contact_phone = selected.get("normalized") or selected.get("value")
+        if selected.get("type") == "email":
+            contact_email = selected.get("normalized") or selected.get("value")
+        contact_name = selected.get("label")
     return ParserIngestItem(
         source_channel=SourceChannel.telegram,
         source_external_id=source_external_id,
@@ -1299,9 +2006,14 @@ def _build_telegram_item(
         region_code=source.region_code,
         area_sqm=_extract_area(text),
         price_rub=_extract_price(text),
-        contact_name=channel_name,
-        contact_phone=_extract_first(PHONE_RE, text),
-        contact_email=_extract_first(EMAIL_RE, text),
+        contact_name=contact_name or None,
+        contact_phone=contact_phone,
+        contact_email=contact_email,
+        contact_candidates=contact_info.get("contact_candidates") if contact_info else None,
+        selected_contact=contact_info.get("selected_contact") if contact_info else None,
+        rejected_contacts=contact_info.get("rejected_contacts") if contact_info else None,
+        contact_rejection_reasons=contact_info.get("contact_rejection_reasons") if contact_info else None,
+        contact_confidence=contact_info.get("contact_confidence") if contact_info else None,
         intent=_detect_intent(text),
         payload=payload,
     )
@@ -1675,6 +2387,23 @@ def _collect_rss_items(source: ParserSource) -> list[ParserIngestItem]:
         normalized_address = _extract_first(ADDRESS_RE, text)
         address_district, address_street = _extract_address_parts(text, normalized_address)
         listing_type = _detect_listing_type(text, link)
+        contact_info = _build_contact_pipeline(
+            source=source,
+            raw_text=description or text,
+            soup=None,
+            json_payloads=None,
+            context_text=text,
+        )
+        selected = contact_info.get("selected_contact") if contact_info else None
+        contact_phone = None
+        contact_email = None
+        contact_name = None
+        if isinstance(selected, dict):
+            if selected.get("type") == "phone":
+                contact_phone = selected.get("normalized") or selected.get("value")
+            if selected.get("type") == "email":
+                contact_email = selected.get("normalized") or selected.get("value")
+            contact_name = selected.get("label")
         items.append(
             ParserIngestItem(
                 source_channel=source.source_channel,
@@ -1691,9 +2420,14 @@ def _collect_rss_items(source: ParserSource) -> list[ParserIngestItem]:
                 region_code=source.region_code,
                 area_sqm=_extract_area(text),
                 price_rub=_extract_price(text),
-                contact_name=source.name,
-                contact_phone=_extract_first(PHONE_RE, text),
-                contact_email=_extract_first(EMAIL_RE, text),
+                contact_name=contact_name or None,
+                contact_phone=contact_phone,
+                contact_email=contact_email,
+                contact_candidates=contact_info.get("contact_candidates") if contact_info else None,
+                selected_contact=contact_info.get("selected_contact") if contact_info else None,
+                rejected_contacts=contact_info.get("rejected_contacts") if contact_info else None,
+                contact_rejection_reasons=contact_info.get("contact_rejection_reasons") if contact_info else None,
+                contact_confidence=contact_info.get("contact_confidence") if contact_info else None,
                 intent=_detect_intent(text),
                 payload={"source_name": source.name, "source_url": source.source_url, "parser": "rss"},
             )
@@ -1737,9 +2471,31 @@ def _collect_json_api_items(source: ParserSource) -> list[ParserIngestItem]:
         normalized_address = _normalize_text(str(record.get("address") or "")) or _extract_first(ADDRESS_RE, text)
         address_district, address_street = _extract_address_parts(text, normalized_address)
         listing_type = _detect_listing_type(text, raw_url)
-        contact_phone = _normalize_text(str(record.get("phone") or record.get("contact_phone") or ""))
-        if not contact_phone:
-            contact_phone = _extract_phone_from_payload(record) or _extract_first(PHONE_RE, text) or ""
+        seed_contacts: list[tuple[str, str]] = []
+        raw_phone = _normalize_text(str(record.get("phone") or record.get("contact_phone") or ""))
+        if raw_phone:
+            seed_contacts.append(("phone", raw_phone))
+        raw_email = _normalize_text(str(record.get("email") or record.get("contact_email") or ""))
+        if raw_email:
+            seed_contacts.append(("email", raw_email))
+        contact_info = _build_contact_pipeline(
+            source=source,
+            raw_text=text,
+            soup=None,
+            json_payloads=[record],
+            context_text=text,
+            seed_contacts=seed_contacts or None,
+        )
+        selected = contact_info.get("selected_contact") if contact_info else None
+        contact_phone = None
+        contact_email = None
+        contact_name = None
+        if isinstance(selected, dict):
+            if selected.get("type") == "phone":
+                contact_phone = selected.get("normalized") or selected.get("value")
+            if selected.get("type") == "email":
+                contact_email = selected.get("normalized") or selected.get("value")
+            contact_name = selected.get("label")
         parsed.append(
             ParserIngestItem(
                 source_channel=source.source_channel,
@@ -1756,10 +2512,14 @@ def _collect_json_api_items(source: ParserSource) -> list[ParserIngestItem]:
                 region_code=_normalize_text(str(record.get("region_code") or source.region_code or "")) or source.region_code,
                 area_sqm=explicit_area if explicit_area is not None else _extract_area(text),
                 price_rub=explicit_price if explicit_price is not None else _extract_price(text),
-                contact_name=_normalize_text(str(record.get("contact_name") or source.name)),
-                contact_phone=contact_phone or None,
-                contact_email=_normalize_text(str(record.get("email") or record.get("contact_email") or ""))
-                or _extract_first(EMAIL_RE, text),
+                contact_name=contact_name or None,
+                contact_phone=contact_phone,
+                contact_email=contact_email,
+                contact_candidates=contact_info.get("contact_candidates") if contact_info else None,
+                selected_contact=contact_info.get("selected_contact") if contact_info else None,
+                rejected_contacts=contact_info.get("rejected_contacts") if contact_info else None,
+                contact_rejection_reasons=contact_info.get("contact_rejection_reasons") if contact_info else None,
+                contact_confidence=contact_info.get("contact_confidence") if contact_info else None,
                 intent=_detect_intent(text),
                 payload={"source_name": source.name, "source_url": source.source_url, "parser": "json_api"},
             )
@@ -1785,6 +2545,7 @@ def collect_items_for_source(source: ParserSource) -> list[ParserIngestItem]:
         SourceChannel.domclick,
         SourceChannel.yandex,
         SourceChannel.bankrupt,
+        SourceChannel.web,
     ):
         return _collect_marketplace_items(source)
     raise ValueError(f"Source channel '{source.source_channel.value}' is not supported for auto parsing.")

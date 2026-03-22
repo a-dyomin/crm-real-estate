@@ -31,6 +31,7 @@ class SourceChannel(str, Enum):
     telegram = "telegram"
     yandex = "yandex"
     bankrupt = "bankrupt"
+    web = "web"
     manual = "manual"
 
 
@@ -81,6 +82,106 @@ class ParserRunStatus(str, Enum):
     completed = "completed"
     completed_with_errors = "completed_with_errors"
     failed = "failed"
+
+
+class DiscoverySeedType(str, Enum):
+    domain = "domain"
+    url = "url"
+    telegram_channel = "telegram_channel"
+    keyword = "keyword"
+
+
+class DiscoveredSourceType(str, Enum):
+    classifieds = "classifieds"
+    agency = "agency"
+    developer = "developer"
+    business_center = "business_center"
+    mall = "mall"
+    auction = "auction"
+    government = "government"
+    telegram = "telegram"
+    directory = "directory"
+    aggregator = "aggregator"
+    unknown = "unknown"
+
+
+class DiscoveryStatus(str, Enum):
+    new = "new"
+    classified = "classified"
+    matched = "matched"
+    ready_for_activation = "ready_for_activation"
+    active = "active"
+    paused = "paused"
+    rejected = "rejected"
+    error = "error"
+
+
+class OnboardingPriority(str, Enum):
+    low = "low"
+    medium = "medium"
+    high = "high"
+    urgent = "urgent"
+
+
+class DiscoveryRunStatus(str, Enum):
+    running = "running"
+    completed = "completed"
+    completed_with_errors = "completed_with_errors"
+    failed = "failed"
+
+
+class SourceLinkType(str, Enum):
+    outbound = "outbound"
+    listing = "listing"
+    sitemap = "sitemap"
+    social = "social"
+    unknown = "unknown"
+
+
+class SourceHealthStatus(str, Enum):
+    new = "new"
+    healthy = "healthy"
+    degraded = "degraded"
+    blocked = "blocked"
+    failed = "failed"
+
+
+class SourceState(str, Enum):
+    seed = "seed"
+    discovered = "discovered"
+    classified = "classified"
+    matched = "matched"
+    ready_for_activation = "ready_for_activation"
+    active = "active"
+    paused = "paused"
+    rejected = "rejected"
+    error = "error"
+
+
+class ActivationMode(str, Enum):
+    manual = "manual"
+    automatic = "automatic"
+
+
+class JobRunStatus(str, Enum):
+    running = "running"
+    success = "success"
+    failed = "failed"
+    skipped = "skipped"
+
+
+class SourceParseStatus(str, Enum):
+    running = "running"
+    completed = "completed"
+    completed_with_errors = "completed_with_errors"
+    failed = "failed"
+
+
+class SourceFrontierStatus(str, Enum):
+    new = "new"
+    processing = "processing"
+    processed = "processed"
+    error = "error"
 
 
 class CallDirection(str, Enum):
